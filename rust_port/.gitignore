@@ -1,0 +1,5 @@
+# Cargo build output
+/target
+
+# Vendored binaries (DXC, Agility SDK) — restored by setup.ps1, never committed
+/tools

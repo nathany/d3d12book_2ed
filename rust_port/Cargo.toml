@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["common", "demos/*"]
+
+[workspace.dependencies]
+common = { path = "common" }
+glam = "0.33"

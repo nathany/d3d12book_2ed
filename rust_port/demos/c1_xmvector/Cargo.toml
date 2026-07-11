@@ -1,0 +1,11 @@
+[package]
+name = "c1_xmvector"
+version = "0.1.0"
+edition = "2024"
+# xmvec3.cpp is the variant left active in the C++ project; the commented-out mains are the
+# other [[bin]] targets (init_functions, vector_ops, tol).
+default-run = "c1_xmvector"
+
+[dependencies]
+common = { workspace = true }
+glam = { workspace = true }

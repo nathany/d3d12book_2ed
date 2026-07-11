@@ -45,10 +45,15 @@ rust_port/
 ```
 
 - **Assets are referenced in place** — the book's `Models/`, `Textures/`, `Shaders/` at the
-  repo root are shared, not copied. Since `cargo run` sets the working directory to the
-  workspace/package root rather than the book's `bin/`, put one `asset_path(rel: &str)`
-  helper in `common` that anchors paths to the repo root (e.g. via `CARGO_MANIFEST_DIR` at
-  compile time), and use it for every shader/texture/model load.
+  repo root are shared, not copied. `common::asset_path(rel)` resolves them by walking up
+  from `current_exe()` until it finds the directory containing `Shaders/` + `Textures/`, so
+  `cargo run` works from any working directory (and survives a custom `CARGO_TARGET_DIR`
+  inside the repo). Use it for every shader/texture/model load.
+- **Tool binaries (DXC, Agility SDK) are fetched by a documented setup step, not by
+  `build.rs`** — `rust_port/setup.ps1` runs `nuget install -ExcludeVersion` (stable,
+  version-free paths) into the gitignored `rust_port/tools/`. Demo `build.rs` scripts only
+  *copy* DLLs from `tools/` to the exe directory and fail with a pointer to the README if
+  `tools/` is missing; builds never touch the network.
 - **Provenance comments are mandatory.** Some "Common" code in the 2nd edition is really
   DirectXTK12's, and the port must not blur that: any module that is a (partial) port of
   DirectXTK12 code gets a header comment naming the source file, e.g.
@@ -294,7 +299,9 @@ storage *and* math — no load/store), `XMMATRIX`/`XMFLOAT4X4` → `Mat4` (ditto
 | `XMVectorMultiplyAdd(a,b,c)` | `a * b + c` | |
 | `XMVectorMin/Max/Abs` | `a.min(b)` / `a.max(b)` / `v.abs()` | |
 | `XMVectorLerp/Saturate` | `a.lerp(b, t)` / `v.clamp(Vec4::ZERO, Vec4::ONE)` | |
-| `XMVectorCos/Exp/Pow` (ch 1 demo only) | per-lane `f32::cos` etc. | no element-wise transcendentals on `Vec4` |
+| `XMVectorSqrt/Cos` | `v.sqrt()` / `v.cos()` | element-wise on `Vec4`; DXM's transcendentals are minimax polynomial approximations, so expect last-ulp diffs vs libm (e.g. cos(π/2)) |
+| `XMVectorLog/Exp` | `v.log2()` / `v.exp2()` | **base 2** in DirectXMath despite the names — verified against the C1 demo |
+| `XMVectorPow(u, p)` | per-lane `u.x.powf(p.x)`, … | glam's `powf` takes a scalar exponent |
 | `XMVector3Dot(u,v)` | `u.dot(v)` | returns scalar (no splat dance) |
 | `XMVector3Cross(u,v)` | `u.cross(v)` | |
 | `XMVector3Length / LengthSq` | `v.length()` / `v.length_squared()` | |
@@ -337,6 +344,10 @@ exercise):
 ### Chapter notes
 
 - **Ch 1 Vector Algebra** — vector rows above. Enjoy deleting every load/store call.
+  **Ported:** `rust_port/demos/c1_xmvector` (all four C++ variants as bins; values verified
+  against the C++ output). Formatting intentionally differs: Rust's `{}` prints exact
+  round-trip floats where `cout` rounds to 6 significant digits; and DirectXMath's polynomial
+  `XMVectorCos` differs from libm in the last ulps on the π/2 lane (see `vector_ops.rs`).
 - **Ch 2 Matrix Algebra** — matrix rows. Remember: glam's element values are the transpose of
   the book's printed matrices — write your `assert`s against transformed *points*, not raw
   elements, or transpose the expectations.
