@@ -67,6 +67,11 @@ rust_port/
   fine and expected, but every `unsafe` block carries a `// SAFETY:` comment stating the
   invariant that makes it sound, per Rust convention. Cleverness (safe wrappers, lifetimes,
   abstractions) is a later pass, if ever.
+- **Fatal errors: log *and* message box.** Fallible calls return `windows::core::Result` and
+  `?` propagates to `main`, which does both `eprintln!` (consoles/CI) and a `MessageBoxW`
+  (the book's `MessageBox`-on-failure style — a windowed app can't count on anyone watching
+  stderr). Centralized once in each demo's `main`, not scattered at call sites; see
+  `appendix_a`'s `report_error`.
 - **imgui-rs is adopted provisionally** — evaluated for real at the first demo that needs it
   (ch 4). If the backend situation disappoints, that's the decision point, not before.
 
@@ -395,6 +400,14 @@ exercise):
   Do both.
 - (winit exists and is fine, but raw Win32 is the book's Appendix A material — port it; that's
   the exercise.)
+
+**Ported:** `rust_port/demos/appendix_a` (`cargo run -p appendix_a`). The 2nd edition ships
+no Appendix A sample, so this follows the program printed in the appendix text with
+`d3dApp.cpp`'s window conventions. Notes that materialized: `UpdateWindow` lives in
+`Win32::Graphics::Gdi` (not `WindowsAndMessaging`); the book's `ghMainWnd` global is
+unnecessary (the callback's `hwnd` is the same window); `Error::from_thread()` is the
+`GetLastError` equivalent for the `RegisterClassW`/`GetMessageW == -1` failure paths; no
+app state is needed here, so the `GWLP_USERDATA` plumbing waits for ch 4.
 
 ---
 
