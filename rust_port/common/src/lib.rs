@@ -3,6 +3,10 @@
 //! Modules that are (partial) ports of DirectXTK12 rather than the book's own code say so
 //! in their module docs — check there before comparing against the C++.
 
+pub mod d3d_app;
+pub mod d3d_util;
+pub mod descriptor_util;
+pub mod game_timer;
 pub mod testing;
 
 use std::path::PathBuf;

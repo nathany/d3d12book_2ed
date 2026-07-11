@@ -1,0 +1,12 @@
+[package]
+name = "c4_init_d3d"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+windows = { workspace = true, features = [
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }

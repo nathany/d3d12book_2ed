@@ -480,6 +480,19 @@ resistance *and* keeps per-demo UI code matching the book's listings.)
 **Verify:** cornflower-blue window, FPS in title bar, repeated resize works (trap #1), debug
 layer silent.
 
+**Ported (part 1 — core):** `rust_port/demos/c4_init_d3d` + `common::{d3d_app, game_timer,
+descriptor_util, d3d_util}`. The C++ virtual base class became struct `D3DApp` (state +
+non-virtual methods) + trait `D3DAppHandler` (the virtuals, with default bodies matching the
+base class) + `run()` (the PeekMessage loop, which also owns the WndProc plumbing: a pointer
+to the `&mut dyn` fat pointer lives in `GWLP_USERDATA` — replacing the C++ `GetApp()`
+singleton). Verified: FL 12_2 adapter loop picks the 9070 XT, LightSteelBlue confirmed by
+screen-pixel sampling (exact 176/196/222), five programmatic resizes through the
+`ResizeBuffers` trap, debug layer enabled + InfoQueue1→stderr registered with zero messages,
+Escape → exit 0. windows-rs gotcha that bit: functions are feature-gated on *every type in
+their signature* — `CreateEventW` needs `Win32_Security` (its `SECURITY_ATTRIBUTES` param),
+not just `Win32_System_Threading`. Still pending (part 2): the ImGui overlay + CbvSrvUav
+heap — the imgui-rs trial.
+
 #### Side quest: debug-layer output to stderr
 
 Same motivation as ever (the debug layer speaks `OutputDebugString`; lightweight editors hear
