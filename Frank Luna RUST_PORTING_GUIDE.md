@@ -344,10 +344,13 @@ exercise):
 ### Chapter notes
 
 - **Ch 1 Vector Algebra** — vector rows above. Enjoy deleting every load/store call.
-  **Ported:** `rust_port/demos/c1_xmvector` (all four C++ variants as bins; values verified
-  against the C++ output). Formatting intentionally differs: Rust's `{}` prints exact
-  round-trip floats where `cout` rounds to 6 significant digits; and DirectXMath's polynomial
-  `XMVectorCos` differs from libm in the last ulps on the π/2 lane (see `vector_ops.rs`).
+  **Ported:** `rust_port/demos/c1_xmvector` — as tests (`cargo test -p c1_xmvector`): a
+  single `src/lib.rs` read top-to-bottom next to the chapter, with one `#[test]` per C++
+  variant asserting values captured from the C++ demos' output.
+  Exact values use `assert_eq!`; cout-rounded values use `common::testing::assert_close*`
+  (std has no approximate float asserts; glam's `abs_diff_eq` underneath). Notable findings
+  encoded in the tests: `XMVectorLog`/`Exp` are base-2, and DirectXMath's polynomial
+  `XMVectorCos` differs from libm in the last ulps on the π/2 lane.
 - **Ch 2 Matrix Algebra** — matrix rows. Remember: glam's element values are the transpose of
   the book's printed matrices — write your `assert`s against transformed *points*, not raw
   elements, or transpose the expectations.

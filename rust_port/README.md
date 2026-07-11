@@ -15,9 +15,11 @@ with DirectX 12* (2nd ed.). Chapter-by-chapter porting notes live in
 ## Running
 
 ```
-cargo run -p c1_xmvector                 # a demo's default binary
-cargo run -p c1_xmvector --bin tol       # demos with multiple variants (commented-out mains
-                                         # in the C++ become extra [[bin]] targets)
+cargo test -p c1_xmvector    # chapters 1–3 are math-only, ported as tests that assert
+                             # values captured from the C++ demos' output — everything in
+                             # one src/lib.rs, read top-to-bottom next to the book chapter
+                             # (one #[test] per C++ variant; helpers in common::testing)
+cargo run -p c4_init_d3d     # D3D demos (chapter 4 on) are binaries
 ```
 
 `cargo run` works from anywhere: asset paths are resolved by walking up from the executable's

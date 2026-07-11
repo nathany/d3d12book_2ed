@@ -3,6 +3,8 @@
 //! Modules that are (partial) ports of DirectXTK12 rather than the book's own code say so
 //! in their module docs — check there before comparing against the C++.
 
+pub mod testing;
+
 use std::path::PathBuf;
 
 /// Resolve a path to the book's shared assets (`Shaders/`, `Textures/`, `Models/` at the
