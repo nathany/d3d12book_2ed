@@ -11,6 +11,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "c2_xmmatrix"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "glam",
+]
+
+[[package]]
+name = "c3_transformations"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "glam",
+]
+
+[[package]]
 name = "common"
 version = "0.1.0"
 dependencies = [

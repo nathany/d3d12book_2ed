@@ -314,7 +314,7 @@ storage *and* math — no load/store), `XMMATRIX`/`XMFLOAT4X4` → `Mat4` (ditto
 | `XMMatrixTranslation(x,y,z)` | `Mat4::from_translation(vec3(x,y,z))` | |
 | `XMMatrixRotationX/Y/Z(a)` | `Mat4::from_rotation_x/y/z(a)` | |
 | `XMMatrixRotationAxis(ax, a)` | `Mat4::from_axis_angle(ax, a)` | axis must be normalized |
-| `XMMatrixRotationRollPitchYaw(p,y,r)` | `Mat4::from_euler(EulerRot::YXZ, yaw, pitch, roll)` | or explicit `from_rotation_y(y) * from_rotation_x(p) * from_rotation_z(r)`; verify once against a book number |
+| `XMMatrixRotationRollPitchYaw(p,y,r)` | `Mat4::from_euler(EulerRot::YXZ, yaw, pitch, roll)` | = `from_rotation_y(y) * from_rotation_x(p) * from_rotation_z(r)`; mapping verified against DXM in `c3_transformations` |
 | `A * B`, `XMMatrixMultiply(A,B)` | **`B * A`** | column-vector: concatenation order reverses — the key row of this table |
 | `XMMatrixTranspose(M)` | `m.transpose()` | still needed before CB upload — same as the book |
 | `XMMatrixInverse(&det, M)` | `m.inverse()` | det separately: `m.determinant()` |
@@ -354,10 +354,22 @@ exercise):
 - **Ch 2 Matrix Algebra** — matrix rows. Remember: glam's element values are the transpose of
   the book's printed matrices — write your `assert`s against transformed *points*, not raw
   elements, or transpose the expectations.
+  **Ported:** `rust_port/demos/c2_xmmatrix`. Two facts the tests demonstrate: the C++ demo
+  prints matrix *rows* which are our matrix *columns* (every assert checks `m.col(i)`
+  against a printed row), and `XMMATRIX(…16 literals…)` ports as
+  `Mat4::from_cols_array(&[…same 16 literals…])` — row-major-row-convention and
+  column-major-column-convention are the same bytes.
 - **Ch 3 Transformations** — where the convention flip must click. Take the book's `S*R*T`
   example, write it as `T * R * S` in glam, and verify the composite transforms the book's test
   points to the book's answers. Once this test passes you've internalized the whole convention
   section.
+  **Ported:** `rust_port/demos/c3_transformations` (no C++ demo exists — tests assert
+  against a scratch DXM ground-truth program). Covers `S*R*T` reversed to `T*R*S` (plus a
+  deliberate `assert_ne!` showing the unreversed order is a *different* transform),
+  `transform_point3`/`project_point3`/`transform_vector3`, `from_axis_angle` (normalized
+  axis required, unlike DXM), and the `EulerRot::YXZ` roll-pitch-yaw mapping. Also found:
+  `XMScalarSinCos` is approximate — DXM's RotationY(π/4) has cos = 0.70710671 vs libm's
+  0.70710677, same category as the ch 1 `XMVectorCos` note.
 
 ---
 

@@ -1,0 +1,8 @@
+[package]
+name = "c3_transformations"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+glam = { workspace = true }
