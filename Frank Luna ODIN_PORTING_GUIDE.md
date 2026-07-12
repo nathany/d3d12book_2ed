@@ -168,7 +168,10 @@ no load/store), `XMMATRIX`/`XMFLOAT4X4` → `matrix[4,4]f32` (ditto), quaternion
 | `XMVectorSwizzle<...>(v)` | `v.zyxw` etc. | |
 | `u + v`, `u - v`, `k * v` | same — native array ops | |
 | `XMVectorMultiplyAdd(a,b,c)` | `a*b + c` | |
-| `XMVectorAbs/Cos/Sqrt/...` | `linalg.abs/cos/sqrt` … | element-wise variants in linalg |
+| `XMVectorAbs/Cos/Sqrt/...` | `linalg.abs/cos/sqrt` … | element-wise variants in linalg (`extended.odin`) |
+| `XMVectorLog/Exp` | `linalg.log2` / `linalg.exp2` | **base 2** in DirectXMath despite the names; Odin computes them via `ln`/`exp`, so even power-of-two results land an ulp off — assert with tolerance, not equality |
+| `XMVectorPow(u, p)` | per-lane `math.pow` | no vector-exponent pow in linalg |
+| `XMVector3ComponentsFromNormal` | `linalg.projection(w, n)` + `w - proj` | n must be unit length |
 | `XMVectorMin/Max/Lerp/Saturate` | `linalg.min/max/lerp`, `linalg.clamp(v, 0, 1)` | |
 | `XMVector3Dot(u,v)` | `linalg.dot(u, v)` | returns scalar (no splat dance) |
 | `XMVector3Cross(u,v)` | `linalg.cross(u, v)` | |
@@ -206,10 +209,26 @@ exercise):
 ### Chapter notes
 
 - **Ch 1 Vector Algebra** — vector rows above. Enjoy deleting every load/store call.
+  **Ported:** `odin_port/C1_XMVECTOR` (`odin test odin_port/C1_XMVECTOR`) — one `.odin` file
+  per C++ variant (the three commented-out mains included), one `@(test)` each, asserting
+  values captured from the C++ demos' output. Float-compare helpers in
+  `odin_port/test_util` (exact values use `testing.expect_value`; cout-rounded values use
+  `expect_close` with eps sized to the 6th significant digit).
 - **Ch 2 Matrix Algebra** — matrix rows; `matrix[4,4]f32` semantics (column-major storage —
   reread the Matrices section so it doesn't surprise you in ch 6).
+  **Ported:** `odin_port/C2_XMMATRIX`. With `Mat4 :: #row_major matrix[4,4]f32` the C++
+  `XMMATRIX A(…)` literal is typed with the same 16 numbers in the same positions, `A * B`
+  stays `A * B`, and the demo's printed rows are our rows — zero convention edits.
+  Confirmed: `#row_major` matrices pass straight through linalg's generic
+  `transpose`/`determinant`/`inverse`.
 - **Ch 3 Transformations** — start `d3d_math.odin` here: rotation/translation/scaling matrices
   typed from the book's printed forms; verify an `S*R*T` chain against the book's numbers.
+  **Ported:** `odin_port/C3_TRANSFORMATIONS` + `odin_port/d3d_math` (the builders, typed in
+  the book's row-vector forms, verified against a DXM ground-truth program — including
+  Rodrigues' rotation-axis form and `RollPitchYaw = Rz·Rx·Ry` left-to-right). `S * Ry * T`
+  reads exactly as the book writes it, with a deliberate negative assert showing the
+  reversed spelling is a different transform. DXM approximation note: `XMScalarSinCos` puts
+  cos(π/4) at 0.70710671 vs core:math's 0.70710677 — same category as `XMVectorCos`.
 
 ---
 
