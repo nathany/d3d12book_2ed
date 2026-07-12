@@ -343,6 +343,37 @@ nothing) — but in Odin this is nearly free, because **`ID3D12InfoQueue1` and
 - DXGI's separate info queue (leak reports at exit) still needs `dxgidebug.dll` — check the
   dxgi bindings; poll at shutdown if present.
 
+**Proving the pipe works — how to simulate a debug-layer error (verified 2026-07):**
+
+1. **Commit a real, recoverable API mistake:** omit the `PRESENT → RENDER_TARGET` barrier
+   in `Draw` (a comment at that barrier in `C4_Init_Direct3D` marks the spot). Validation
+   fires at `ExecuteCommandLists`: two ERRORs per frame on stderr — id 538
+   `INVALID_RESOURCE_STATE` (with actual/expected/missing state bits spelled out) and
+   id 527 (the closing barrier's before-state mismatch). Thousands of messages in seconds,
+   fully readable in a terminal, no Visual Studio involved. Note the demo keeps "working"
+   visually on the 9070 XT despite the errors — exactly the
+   undefined-behavior-that-happens-to-work the debug layer exists to catch; another driver
+   may show garbage for the same code.
+2. **`ID3D12InfoQueue::AddApplicationMessage(severity, text)`** injects a custom message
+   through the same queue — fires the callback without any API misuse. Tests the plumbing,
+   not the validator; useful as a permanent one-line startup self-check.
+3. **Escalations:** `SetBreakOnSeverity(ERROR)` to stop a debugger on the offending call
+   (see below); GPU-based validation (`SetEnableGPUBasedValidation`, the line the book
+   leaves commented out) catches what CPU validation can't — e.g. ch 13's missing UAV
+   barriers.
+
+**"When a debugger is attached" means a CPU-side user-mode debugger** — Visual Studio,
+WinDbg, RAD Debugger, x64dbg: anything that attaches via the Win32 debugging API and
+catches breakpoint exceptions. `SetBreakOnSeverity` makes the debug layer execute a
+breakpoint when a matching message is queued, so the attached debugger stops on the exact
+call that misbehaved — guard it with `IsDebuggerPresent()`, or an unattended run dies on
+the unhandled breakpoint. **RenderDoc and PIX are not debuggers in this sense** — they are
+GPU frame-capture/analysis tools that intercept API calls rather than attach as debuggers,
+so they never see the breakpoint. Division of labor: the debug layer answers "is my API
+usage legal?", a CPU debugger answers "which code path issued the illegal call?", and
+RenderDoc/PIX answer "why do the pixels look wrong?". (RenderDoc prefers the debug layer
+off during capture.)
+
 **DRED** (`ID3D12DeviceRemovedExtendedData` — breadcrumbs + page faults on device removal) is
 also already bound; enabling it is a few lines and worth doing before the compute chapters.
 DirectX Dump Files remain preview-only (preview Agility SDK + preview driver + preview PIX) —

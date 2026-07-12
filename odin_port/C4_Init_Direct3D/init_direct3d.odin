@@ -61,6 +61,8 @@ draw :: proc(base: ^common.D3D_App) {
 	base.command_list->RSSetScissorRects(1, &base.scissor_rect)
 
 	// Indicate a state transition on the resource usage.
+	// (Omitting this barrier is a great debug-layer smoke test: two ERRORs per frame on
+	// stderr — ids 538 INVALID_RESOURCE_STATE and 527 barrier-mismatch. Verified 2026-07.)
 	to_render_target := common.transition_barrier(
 		common.current_back_buffer(base),
 		{}, // D3D12_RESOURCE_STATE_PRESENT (== COMMON == 0)
