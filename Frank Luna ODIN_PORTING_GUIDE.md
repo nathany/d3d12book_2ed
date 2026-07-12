@@ -338,10 +338,22 @@ nothing) — but in Odin this is nearly free, because **`ID3D12InfoQueue1` and
 - `QueryInterface` the device for `IInfoQueue1`, register a callback
   (`proc "system"` — set up a context inside before calling `fmt.eprintln`), print
   severity/ID/description to stderr. Vulkan-validation-layer experience achieved.
-- `SetMuteDebugOutput(true)` to stop the duplicate debugger-channel output;
+- `SetMuteDebugOutput(true)` to stop the duplicate debugger-channel output — **not bound**
+  for the D3D12 info queue in vendor (harmless: that channel is only visible to debuggers).
   `SetBreakOnSeverity` for ERROR/CORRUPTION when a debugger is attached.
-- DXGI's separate info queue (leak reports at exit) still needs `dxgidebug.dll` — check the
-  dxgi bindings; poll at shutdown if present.
+- **Leak reports (implemented & verified at ch 4):** vendor ships `dxgidebug.odin` with
+  `IDXGIDebug.ReportLiveObjects` and the DXGI `IInfoQueue` fully bound — only the entry
+  point is missing, and the trap is its location: **`DXGIGetDebugInterface1` is exported by
+  `dxgi.dll`** (resolve via `GetModuleHandleW` + `GetProcAddress`), while the similarly
+  named `DXGIGetDebugInterface` (no "1") is the one in `dxgidebug.dll`. At the end of
+  `d3d_app_shutdown`: `ReportLiveObjects(DEBUG_ALL, .ALL)`, then poll the DXGI info queue
+  (two-call `GetMessage`) onto stderr. A clean run prints nothing; a deliberately leaked
+  fence prints `Live ID3D12Fence at …, Refcount: 1` plus the device it keeps alive.
+  Independent backstop: if anything leaks past process exit, the D3D12 layer's "Process is
+  terminating. Using simple reporting" warnings arrive through the InfoQueue1 callback too.
+- **DRED enabled at ch 4** (`IDeviceRemovedExtendedDataSettings`, pre-bound, four lines,
+  before device creation) — auto-breadcrumbs + page-fault data will pay off at the compute
+  chapters.
 
 **Proving the pipe works — how to simulate a debug-layer error (verified 2026-07):**
 

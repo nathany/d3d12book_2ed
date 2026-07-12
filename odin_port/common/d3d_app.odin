@@ -179,6 +179,21 @@ init_direct3d :: proc(app: ^D3D_App) {
 		defer debug1->Release() // local ComPtr in the C++: released at scope end
 		debug1->EnableDebugLayer()
 		// debug1->SetEnableGPUBasedValidation(true) — like the book, off by default.
+
+		// DRED (Device Removed Extended Data): auto-breadcrumbs + page-fault data attached
+		// to device-removal errors. The guide recommends enabling it before the compute
+		// chapters; the interfaces are pre-bound, so it costs four lines. Must be set
+		// BEFORE the device is created.
+		dred: ^d3d12.IDeviceRemovedExtendedDataSettings
+		if d3d12.GetDebugInterface(
+			   d3d12.IDeviceRemovedExtendedDataSettings_UUID,
+			   ptr(&dred),
+		   ) >=
+		   0 {
+			dred->SetAutoBreadcrumbsEnablement(.FORCED_ON)
+			dred->SetPageFaultEnablement(.FORCED_ON)
+			dred->Release()
+		}
 	}
 
 	hr_panic(
@@ -511,11 +526,71 @@ d3d_app_shutdown :: proc(app: ^D3D_App) {
 	if app.command_list != nil {app.command_list->Release()}
 	if app.direct_cmd_list_alloc != nil {app.direct_cmd_list_alloc->Release()}
 	if app.command_queue != nil {app.command_queue->Release()}
+	// (Omitting any one of these Releases is the leak-detector smoke test: the report at
+	// the end prints e.g. "Live ID3D12Fence at …, Refcount: 1". Verified 2026-07.)
 	if app.fence != nil {app.fence->Release()}
 	if app.swap_chain != nil {app.swap_chain->Release()}
 	if app.default_adapter != nil {app.default_adapter->Release()}
 	if app.device != nil {app.device->Release()}
 	if app.dxgi_factory != nil {app.dxgi_factory->Release()}
+
+	// Everything above should have brought every refcount to zero — prove it.
+	when ODIN_DEBUG {
+		report_live_objects()
+	}
+}
+
+// The guide's leak-report step: after shutdown, ask DXGI to report any COM object still
+// alive, and pull the report onto stderr (its native channels are the DXGI info queue and
+// the debugger output we can't see). A clean run prints nothing; a missing Release prints
+// the leaked object with its refcount.
+//
+// vendor:directx/dxgi binds the dxgidebug *interfaces* (dxgidebug.odin) but not the entry
+// point — DXGIGetDebugInterface1 lives in dxgidebug.dll, a development-only DLL — so load
+// it at runtime and degrade gracefully when absent.
+@(private)
+report_live_objects :: proc() {
+	// DXGIGetDebugInterface1 is exported by dxgi.dll (already loaded); it internally
+	// requires dxgidebug.dll (the development-only DLL) and fails cleanly without it.
+	// (Trap discovered here: the similarly-named DXGIGetDebugInterface — no "1" — is the
+	// one that lives in dxgidebug.dll.)
+	dxgi_module := win.GetModuleHandleW(win.L("dxgi.dll"))
+	if dxgi_module == nil {
+		return
+	}
+	get_debug_interface :=
+	(proc "system" (flags: u32, riid: ^dxgi.IID, out: ^rawptr) -> dxgi.HRESULT)(win.GetProcAddress(dxgi_module, "DXGIGetDebugInterface1"))
+	if get_debug_interface == nil {
+		return
+	}
+
+	dxgi_debug: ^dxgi.IDebug
+	if get_debug_interface(0, dxgi.IDebug_UUID, (^rawptr)(&dxgi_debug)) < 0 {
+		return
+	}
+	defer dxgi_debug->Release()
+
+	// Writes the report into the DXGI info queue; .ALL = SUMMARY|DETAIL|IGNORE_INTERNAL.
+	dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, .ALL)
+
+	// Pull the report out of the queue onto stderr (two-call GetMessage: size, then fill).
+	info_queue: ^dxgi.IInfoQueue
+	if get_debug_interface(0, dxgi.IInfoQueue_UUID, (^rawptr)(&info_queue)) < 0 {
+		return
+	}
+	defer info_queue->Release()
+
+	n := info_queue->GetNumStoredMessages(dxgi.DEBUG_ALL)
+	for i in 0 ..< n {
+		length: dxgi.SIZE_T
+		info_queue->GetMessage(dxgi.DEBUG_ALL, i, nil, &length)
+		buf := make([]byte, int(length), context.temp_allocator)
+		msg := (^dxgi.INFO_QUEUE_MESSAGE)(raw_data(buf))
+		if info_queue->GetMessage(dxgi.DEBUG_ALL, i, msg, &length) >= 0 {
+			fmt.eprintfln("[dxgi-live %v] %s", msg.Severity, cstring(msg.pDescription))
+		}
+	}
+	info_queue->ClearStoredMessages(dxgi.DEBUG_ALL)
 }
 
 // C++: CalculateFrameStats() — average FPS/mspf appended to the window caption.
