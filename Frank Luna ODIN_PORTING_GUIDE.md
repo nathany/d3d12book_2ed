@@ -249,6 +249,17 @@ exercise):
 - The book's appendix uses `GetMessage` (blocking); ch 4 switches to `PeekMessage` (game loop).
   Do both.
 
+**Ported:** `odin_port/APPENDIX_A` (`odin run odin_port/APPENDIX_A`) — the appendix-text
+program with `d3dApp.cpp`'s conventions (no Appendix A sample ships in the 2nd ed). Notes
+that materialized: plain `RegisterClassW`/`WNDCLASSW` are bound (not just the Ex variants);
+`windows.L("…")` is `intrinsics.constant_utf16_cstring` — compile-time wide literals;
+`IDI_APPLICATION`/`IDC_ARROW` are typed as `cstring`, so cast `win._IDI_APPLICATION`
+(`rawptr`) to `LPCWSTR` for the W loaders; `GetMessageW` returns `INT`, so the book's `-1`
+error check ports directly; Odin makes unreachable code a compile error (mind that when
+temporarily injecting error-path tests). Fatal errors follow the port convention:
+`report_error` does stderr + `MessageBoxW`, both verified. Console subsystem kept for the
+ch 4 stderr story (`-subsystem:windows` for ship builds).
+
 ---
 
 ## Part II — Direct3D Foundations
