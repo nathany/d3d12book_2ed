@@ -309,6 +309,26 @@ Per-demo UI is `im.text/slider_float/checkbox` — 1:1 with the book's calls.
 **Verify:** cornflower-blue window, FPS in title bar, repeated resize works (trap #1), debug
 layer silent.
 
+**Ported (part 1 — core):** `odin_port/C4_Init_Direct3D` + `odin_port/common`
+(`odin run odin_port/C4_Init_Direct3D -debug`). The C++ virtual base class became struct
+`D3D_App` with proc-pointer virtuals (`update`/`draw` + optional mouse hooks); demos embed
+it via `using base: common.D3D_App` and cast back (subtype polymorphism). The `GetApp()`
+singleton became a `^D3D_App` in `GWLP_USERDATA` (thin pointer — simpler than the Rust
+port's fat-pointer dance). `wnd_proc` and the InfoQueue1 callback both start with
+`context = runtime.default_context()`. Manual COM discipline throughout, per the plan:
+enumerated adapters released when not kept, QI-upgrades release the old interface,
+`d3d_app_shutdown` releases children-before-device after a queue flush. Verified:
+pixel-exact LightSteelBlue via screen sampling, five programmatic resizes, debug layer
+enabled + InfoQueue1→stderr with zero messages, Escape → clean exit, ~8900 fps on the
+9070 XT. Gotcha: vendor's `PFN_MESSAGE_CALLBACK` is `proc "c"` (cdecl), not "system".
+Still pending (part 2): the ImGui overlay + CbvSrvUav heap (Capati/odin-imgui trial).
+
+**DXC version note (checked 2026-07):** the vendor folder ships dxcompiler.dll **1.6.2112
+(Dec 2021)** — old, but it postdates SM 6.6 (added in 1.6.2104), so it should compile the
+book's shaders. The repo's `External\dxc\bin\x64` has 1.9.2602 (restored via NuGet for the
+C++ demos); if 1.6 misbehaves at ch 6, copy the newer DLLs next to the exe — exe-dir DLL
+search beats everything.
+
 #### Side quest: debug-layer output to stderr
 
 Same motivation as ever (debug layer speaks `OutputDebugString`; lightweight editors hear
