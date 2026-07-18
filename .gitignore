@@ -69,3 +69,6 @@ bld/
 
 # Paths
 bin/
+
+# Dear ImGui runtime layout state (written to the working directory)
+imgui.ini

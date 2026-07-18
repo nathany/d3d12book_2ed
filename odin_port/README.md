@@ -18,6 +18,43 @@ odin test odin_port/C2_XMMATRIX       # assert values captured from the C++ demo
 odin test odin_port/C3_TRANSFORMATIONS
 ```
 
+## ImGui (vendored in `libs/imgui`)
+
+The overlay UI (ch 4 on) uses [Capati/odin-imgui](https://github.com/Capati/odin-imgui)
+(Dear ImGui 1.92.8-docking) with the **win32 + dx12** backends — the same pair the book's
+C++ uses. The bindings are vendored here as plain copies for now (we may revisit
+submodules later); the static library is **gitignored** (large binary), so after a fresh
+clone it must be rebuilt and copied in:
+
+1. **Prerequisites:** Git, Python 3.3+ (used by dear_bindings), premake5
+   (<https://premake.github.io> — put the exe on PATH or note where it lives), and the
+   VS 2022 Build Tools (MSVC + Windows SDK).
+2. Clone `Capati/odin-imgui` somewhere *outside* this repo.
+3. In that checkout, generate and build (backends are baked into the lib at this step —
+   `win32,dx12`, nothing else):
+
+   ```
+   premake5 --backends=win32,dx12 vs2022
+   msbuild build\make\windows\ImGui.vcxproj -p:Configuration=Release -p:Platform=x64
+   ```
+
+   This produces `imgui_windows_x64.lib` in the checkout root.
+
+   *Known issue (2026-07):* with Dear ImGui 1.92.8, the premake script's win32-backend
+   patch targets stale hardcoded line numbers (705–706; the declarations moved to
+   729–730), causing `error C2159` in `imgui_impl_win32.cpp`. Our checkout's
+   `premake5.lua` was fixed to patch by pattern instead — worth PRing upstream.
+
+4. Copy into `odin_port/libs/imgui`, **preserving the layout** (the backend packages
+   import the root package by relative path, and the `.lib` is foreign-imported from the
+   package root): `imgui.odin`, `impl_enabled.odin` (verify win32/dx12 are `true` in it),
+   `LICENSE`, `imgui_windows_x64.lib`, `backends/win32/`, `backends/dx12/`.
+5. Convert the generated `impl_enabled.odin` to **LF** — premake writes CRLF and this
+   repo intentionally uses LF line endings.
+
+`imgui.ini` (window layout state Dear ImGui writes to the working directory at runtime)
+is gitignored.
+
 ## The convention decision (differs from `rust_port/`!)
 
 This port keeps **the book's row-vector convention**, via

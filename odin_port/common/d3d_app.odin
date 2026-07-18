@@ -30,8 +30,15 @@ import "core:fmt"
 import win "core:sys/windows"
 import d3d12 "vendor:directx/d3d12"
 import dxgi "vendor:directx/dxgi"
+import im "../libs/imgui"
+import im_dx12 "../libs/imgui/backends/dx12"
+import im_win32 "../libs/imgui/backends/win32"
 
 SWAP_CHAIN_BUFFER_COUNT :: 2
+
+// C++: gNumFrameResources (per-demo, = 3). Used by the ImGui DX12 backend now; the
+// FrameResource ring itself arrives in ch 7.
+NUM_FRAME_RESOURCES :: 3
 
 D3D_App :: struct {
 	hwnd:     win.HWND,
@@ -509,6 +516,74 @@ d3d_app_run :: proc(app: ^D3D_App) -> int {
 	return int(msg.wParam)
 }
 
+// C++: D3DApp::InitImgui(CbvSrvUavHeap&) — call after the demo builds its CbvSrvUav heap.
+d3d_app_init_imgui :: proc(app: ^D3D_App, heap: ^Cbv_Srv_Uav_Heap) {
+	im.CHECKVERSION()
+	im.CreateContext()
+
+	// Setup Dear ImGui style
+	im.StyleColorsDark()
+	//im.StyleColorsClassic()
+
+	// Setup Platform/Renderer backends. The book's ImGui (1.85 era) took a single SRV
+	// descriptor; 1.92 asks the app to own SRV allocation via callbacks — which map
+	// exactly onto CbvSrvUavHeap's next_free_index/release_index.
+	im_win32.Init(app.hwnd)
+	init_info := im_dx12.InitInfo {
+		Device            = (^d3d12.IDevice)(app.device),
+		CommandQueue      = app.command_queue,
+		NumFramesInFlight = NUM_FRAME_RESOURCES,
+		RTVFormat         = app.back_buffer_format,
+		DSVFormat         = app.depth_stencil_format,
+		UserData          = heap,
+		SrvDescriptorHeap = heap.heap,
+		SrvDescriptorAllocFn = proc "c" (
+			info: ^im_dx12.InitInfo,
+			out_cpu: ^d3d12.CPU_DESCRIPTOR_HANDLE,
+			out_gpu: ^d3d12.GPU_DESCRIPTOR_HANDLE,
+		) {
+			context = default_context() // "c" callback: no Odin context
+			heap := (^Cbv_Srv_Uav_Heap)(info.UserData)
+			index := next_free_index(heap)
+			out_cpu^ = cpu_handle(heap, index)
+			out_gpu^ = gpu_handle(heap, index)
+		},
+		SrvDescriptorFreeFn = proc "c" (
+			info: ^im_dx12.InitInfo,
+			cpu: d3d12.CPU_DESCRIPTOR_HANDLE,
+			gpu: d3d12.GPU_DESCRIPTOR_HANDLE,
+		) {
+			context = default_context()
+			heap := (^Cbv_Srv_Uav_Heap)(info.UserData)
+			// Recover the bindless index from the handle offset.
+			start: d3d12.GPU_DESCRIPTOR_HANDLE
+			heap.heap->GetGPUDescriptorHandleForHeapStart(&start)
+			release_index(heap, u32((gpu.ptr - start.ptr) / u64(heap.descriptor_size)))
+		},
+	}
+	im_dx12.Init(&init_info)
+}
+
+// C++: D3DApp::UpdateImgui — begin a new ImGui frame. Demos call this first in their own
+// update_imgui, add widgets, then im.Render() (mirroring the C++ virtual + base call).
+d3d_app_update_imgui_base :: proc() {
+	im_dx12.NewFrame()
+	im_win32.NewFrame()
+	im.NewFrame()
+}
+
+// C++: D3DApp::ShutdownImgui() — call BEFORE cbv_srv_uav_heap_destroy and
+// d3d_app_shutdown: the DX12 backend frees its SRV descriptors through the heap's
+// callbacks, and its device objects must go before the device.
+d3d_app_shutdown_imgui :: proc(app: ^D3D_App) {
+	if im.GetCurrentContext() != nil {
+		flush_command_queue(app) // GPU may still reference the font texture
+		im_dx12.Shutdown()
+		im_win32.Shutdown()
+		im.DestroyContext()
+	}
+}
+
 // C++: ~D3DApp() + the deinit order rules from the guide: flush queue first, children
 // before parents, device last. (This is the discipline Rust's Drop impls performed
 // implicitly — in Odin it reads like the C++ without ComPtr.)
@@ -632,6 +707,12 @@ wnd_proc :: proc "system" (
 	lparam: win.LPARAM,
 ) -> win.LRESULT {
 	context = default_context()
+
+	// Hook Imgui into the message pump (C++: MainWndProc). Before ImGui init this is a
+	// harmless no-op returning 0.
+	if im_win32.WndProcHandler(hwnd, msg, wparam, lparam) != 0 {
+		return 1
+	}
 
 	app := (^D3D_App)(uintptr(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)))
 	if app == nil {

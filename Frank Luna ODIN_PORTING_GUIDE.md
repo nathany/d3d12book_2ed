@@ -321,7 +321,20 @@ enumerated adapters released when not kept, QI-upgrades release the old interfac
 pixel-exact LightSteelBlue via screen sampling, five programmatic resizes, debug layer
 enabled + InfoQueue1→stderr with zero messages, Escape → clean exit, ~8900 fps on the
 9070 XT. Gotcha: vendor's `PFN_MESSAGE_CALLBACK` is `proc "c"` (cdecl), not "system".
-Still pending (part 2): the ImGui overlay + CbvSrvUav heap (Capati/odin-imgui trial).
+
+**Ported (part 2 — ImGui, 2026-07):** the Options panel renders (verified by screenshot:
+frame stats + VideoMemoryInfo via `QueryVideoMemoryInfo`; the GraphicsMemoryStatistics
+section waits for the ch 6–7 upload arena). Capati/odin-imgui is vendored at
+`odin_port/libs/imgui` (win32+dx12 backends; build/copy steps in `odin_port/README.md` —
+Python + premake5 + MSBuild). Findings: Dear ImGui 1.92's DX12 backend replaced the book's
+single-SRV `Init` with an `InitInfo` struct whose `SrvDescriptorAllocFn`/`FreeFn`
+callbacks map *exactly* onto `CbvSrvUavHeap.NextFreeIndex/ReleaseIndex` (the C++
+singleton is passed explicitly here, via `InitInfo.UserData`); `WndProcHandler` hooks the
+message pump first, as in `MainWndProc`; shutdown order matters — ImGui before the heap
+before the base, so the SRV free callbacks still have a live heap and the leak report
+stays silent (it does). Capati build bug found & fixed locally (PR-worthy): its premake
+script patches `imgui_impl_win32.cpp` by hardcoded line numbers that went stale in ImGui
+1.92.8 → `error C2159`; our checkout patches by pattern instead.
 
 **DXC version note (checked 2026-07):** the vendor folder ships dxcompiler.dll **1.6.2112
 (Dec 2021)** — old, but it postdates SM 6.6 (added in 1.6.2104), so it should compile the
