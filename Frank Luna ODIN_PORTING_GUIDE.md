@@ -339,8 +339,9 @@ script patches `imgui_impl_win32.cpp` by hardcoded line numbers that went stale 
 **DXC version note (checked 2026-07):** the vendor folder ships dxcompiler.dll **1.6.2112
 (Dec 2021)** — old, but it postdates SM 6.6 (added in 1.6.2104), so it should compile the
 book's shaders. The repo's `External\dxc\bin\x64` has 1.9.2602 (restored via NuGet for the
-C++ demos); if 1.6 misbehaves at ch 6, copy the newer DLLs next to the exe — exe-dir DLL
-search beats everything.
+C++ demos); if 1.6 misbehaves, copy the newer DLLs next to the exe — exe-dir DLL search
+beats everything. *(Resolved at ch 6: vendor 1.6 compiles the SM 6.6 shaders fine,
+PDB output included — pinned next to the exe, fallback not needed. See the ch 6 note.)*
 
 #### Side quest: debug-layer output to stderr
 
@@ -432,6 +433,51 @@ Theory, no demo. Two porting hooks: this chapter *derives the perspective matrix
   two (or a `Mat4` that isn't `#row_major` — check the alias). Verify the CB bytes once and
   trust it afterward.
 - `Camera` first appears (simple form); port what's needed, full version at ch 15.
+
+**Ported (2026-07-18):** `odin_port/C6_Box` + `odin_port/C6_BoxGrid`
+(`odin run odin_port/C6_Box -debug` **from the repo root** — the shader path
+`Shaders/BasicColor.hlsl` and the DXC DLLs resolve relative to it; see
+`odin_port/README.md` for the one-time DLL copy). New common code:
+`upload_buffer.odin` (`Upload_Buffer($T)` — the C++ template became parametric
+polymorphism), `mesh_util.odin` (`Mesh_Geometry` + `Submesh_Geometry` + a data-only
+`Bounding_Box`), `upload_batch.odin` (**DirectXTK12-derived, provenance header**: a
+synchronous `Resource_Upload_Batch` + `create_static_buffer`; the C++ `std::future` End()
+became end-and-wait — the demos block on the future before first draw anyway), and in
+`d3d_util.odin`: `calc_constant_buffer_byte_size`, `buffer_desc`, the `CD3DX12_*_DESC`
+defaults spelled out as constants, `init_default_pso`, and the DXC `compile_shader`
+(`IDxcUtils`/`IDxcCompiler3`/`IDxcResult`, error text via `IDxcBlobUtf8` → `report_error`,
+shader PDBs written to `HLSL PDB/` in debug builds like the C++). `d3d_math` gained
+`look_at_lh` and `perspective_fov_lh` (ch 5's derivations, [0,1] depth). `D3D_App` gained
+the `on_resize` virtual — overrides call `common.on_resize` first (the C++ base call),
+then recompute the projection; it defaults to the base body when unset, so C4 is untouched.
+
+Findings and traps from the port:
+
+- **Vendor DXC 1.6.2112 works** — `BasicColor.hlsl` compiles as `vs_6_6`/`ps_6_6`, PDB
+  output (`DXC_OUT_PDB`) included. The 1.9-from-`External\dxc` fallback wasn't needed.
+- **DLL pinning:** the exe loads `dxcompiler.dll` at process start (load-time linking
+  against vendor's import lib), and the Vulkan SDK also puts a `dxcompiler.dll` on PATH —
+  so the vendor DLLs are copied to the repo root (= exe dir, which wins the search order),
+  deliberately pinning the version. Both are gitignored; see the README for the copy step.
+- **Benign warning pair on every run:** id 1328 `CreateCommittedResource: Ignoring
+  InitialState D3D12_RESOURCE_STATE_COPY_DEST. Buffers are effectively created in state
+  D3D12_RESOURCE_STATE_COMMON` — this is `create_static_buffer` creating the default-heap
+  buffer in `COPY_DEST`, exactly what DirectXTK12's `CreateStaticBuffer` does, so the C++
+  demos emit the same two warnings (invisibly, to the debugger channel). Ours are visible
+  because InfoQueue1 pipes warnings to stderr. Harmless: buffers implicitly promote from
+  COMMON to COPY_DEST on first copy, and the recorded `COPY_DEST → final` barrier stays
+  legal.
+- **Screenshot-verification trap (tooling, not D3D):** on a 150% display, an unaware
+  PowerShell probe gets DPI-virtualized `GetWindowRect` coordinates, so `CopyFromScreen`
+  crops/mislocates the window — the box looked "off-center" until the probe thread was
+  made per-monitor DPI aware (`SetThreadDpiAwarenessContext(-4)`). `PrintWindow` with
+  `PW_RENDERFULLCONTENT` also dodges overlapping windows.
+
+Verified (both demos): colored box(es) over LightSteelBlue matching the C++ framing — Box
+centered with cyan/yellow/red/white corners, BoxGrid's 3×3 with per-object translations;
+Wireframe checkbox toggled live via an injected cursor click (wireframe PSO renders, then
+back to solid); five programmatic resizes with the projection recomputed through the new
+`on_resize` virtual; Escape → exit 0; debug layer silent; leak report silent.
 
 ### Ch 7 — Drawing Part II  *(Shapes, Waves)*
 

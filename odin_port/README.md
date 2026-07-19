@@ -16,7 +16,32 @@ package mirror the demo's `.cpp` files. Shared code lives in its own packages
 odin test odin_port/C1_XMVECTOR       # chapters 1–3 are math-only, ported as tests that
 odin test odin_port/C2_XMMATRIX       # assert values captured from the C++ demos' output
 odin test odin_port/C3_TRANSFORMATIONS
+
+odin run odin_port/APPENDIX_A
+odin run odin_port/C4_Init_Direct3D -debug    # -debug turns on the D3D12 debug layer,
+odin run odin_port/C6_Box -debug              # stderr validation log, and leak report
+odin run odin_port/C6_BoxGrid -debug
 ```
+
+**Run the windowed demos from the repo root** — shaders load by relative path
+(`Shaders/BasicColor.hlsl`), matching the C++ demos' convention.
+
+### DXC runtime DLLs (one-time, ch 6+)
+
+Demos with shaders compile HLSL at startup through `vendor:directx/dxc`, which links
+against `dxcompiler.dll` (plus `dxil.dll` for signing). Copy both from the Odin vendor
+folder into the repo root (= the exe's directory, which wins the DLL search — deliberately
+pinning this version over any `dxcompiler.dll` on PATH, e.g. the Vulkan SDK's):
+
+```
+copy %USERPROFILE%\tools\odin\vendor\directx\dxc\dxcompiler.dll .
+copy %USERPROFILE%\tools\odin\vendor\directx\dxc\dxil.dll .
+```
+
+Both are gitignored. The vendored version is 1.6.2112 — old but SM 6.6-capable, verified
+against the ch 6 shaders. (Fallback if it ever misbehaves: the newer
+`External\dxc\bin\x64` DLLs, restored by the C++ demos' NuGet step.) Debug builds also
+write shader PDBs to `HLSL PDB/` (gitignored via `*.pdb`) for PIX.
 
 ## ImGui (vendored in `libs/imgui`)
 

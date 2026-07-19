@@ -81,8 +81,12 @@ D3D_App :: struct {
 	client_height:        i32,
 
 	// The virtuals: update/draw are the book's pure virtuals; the rest are optional hooks.
+	// on_resize overrides (ch 6+: recompute the projection matrix) must call
+	// common.on_resize first, like the C++ D3DApp::OnResize() base call; left nil it
+	// defaults to common.on_resize itself (set in d3d_app_init).
 	update:        proc(app: ^D3D_App),
 	draw:          proc(app: ^D3D_App),
+	on_resize:     proc(app: ^D3D_App),
 	on_mouse_down: proc(app: ^D3D_App, btn_state: win.WPARAM, x, y: i32),
 	on_mouse_up:   proc(app: ^D3D_App, btn_state: win.WPARAM, x, y: i32),
 	on_mouse_move: proc(app: ^D3D_App, btn_state: win.WPARAM, x, y: i32),
@@ -105,6 +109,7 @@ d3d_app_init :: proc(app: ^D3D_App) {
 	if app.depth_stencil_format == .UNKNOWN do app.depth_stencil_format = .D24_UNORM_S8_UINT
 	if app.client_width == 0 do app.client_width = 1280
 	if app.client_height == 0 do app.client_height = 720
+	if app.on_resize == nil do app.on_resize = on_resize // the virtual's default body
 
 	game_timer_init(&app.timer)
 	app.instance = win.HINSTANCE(win.GetModuleHandleW(nil))
@@ -489,7 +494,7 @@ depth_stencil_view :: proc(app: ^D3D_App) -> d3d12.CPU_DESCRIPTOR_HANDLE {
 // C++: D3DApp::Run() — the PeekMessage game loop (the initial OnResize is the tail of the
 // C++ Initialize; done here so init/run split cleanly).
 d3d_app_run :: proc(app: ^D3D_App) -> int {
-	on_resize(app)
+	app->on_resize() // virtual dispatch: demos with a proj matrix compute it here first
 
 	msg: win.MSG
 	game_timer_reset(&app.timer)
@@ -748,25 +753,25 @@ wnd_proc :: proc "system" (
 				app.app_paused = false
 				app.minimized = false
 				app.maximized = true
-				on_resize(app)
+				app->on_resize()
 			case win.SIZE_RESTORED:
 				if app.minimized {
 					// Restoring from minimized state?
 					app.app_paused = false
 					app.minimized = false
-					on_resize(app)
+					app->on_resize()
 				} else if app.maximized {
 					// Restoring from maximized state?
 					app.app_paused = false
 					app.maximized = false
-					on_resize(app)
+					app->on_resize()
 				} else if app.resizing {
 					// While the user drags the resize bars a stream of WM_SIZE messages
 					// arrives; resizing per message would be pointless and slow. Wait for
 					// WM_EXITSIZEMOVE instead.
 				} else {
 					// API call such as SetWindowPos or SetFullscreenState.
-					on_resize(app)
+					app->on_resize()
 				}
 			}
 		}
@@ -785,7 +790,7 @@ wnd_proc :: proc "system" (
 		app.app_paused = false
 		app.resizing = false
 		game_timer_start(&app.timer)
-		on_resize(app)
+		app->on_resize()
 		return 0
 
 	// WM_DESTROY is sent when the window is being destroyed.

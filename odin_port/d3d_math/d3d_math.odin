@@ -7,6 +7,7 @@
 package d3d_math
 
 import "core:math"
+import "core:math/linalg"
 
 Vec3 :: [3]f32
 Vec4 :: [4]f32
@@ -106,4 +107,36 @@ transform_coord :: proc(v: Vec3, m: Mat4) -> Vec3 {
 // C++: XMVector3TransformNormal(v, m)  — w = 0 kills the translation row.
 transform_normal :: proc(v: Vec3, m: Mat4) -> Vec3 {
 	return (Vec4{v.x, v.y, v.z, 0} * m).xyz
+}
+
+// C++: XMMatrixLookAtLH(pos, target, up)  — the book's view matrix, §5.6.2: build the
+// camera's orthonormal LH basis (w = look, u = right, v = up), then the matrix is the
+// inverse of the camera's world transform — rotation transposed into COLUMNS, translation
+// as the negated dot products in the last row.
+look_at_lh :: proc(pos, target, up: Vec3) -> Mat4 {
+	w := linalg.normalize(target - pos)
+	u := linalg.normalize(linalg.cross(up, w))
+	v := linalg.cross(w, u) // unit already: cross of two orthonormal vectors
+	return Mat4{
+		u.x, v.x, w.x, 0,
+		u.y, v.y, w.y, 0,
+		u.z, v.z, w.z, 0,
+		-linalg.dot(pos, u), -linalg.dot(pos, v), -linalg.dot(pos, w), 1,
+	}
+}
+
+// C++: XMMatrixPerspectiveFovLH(fovY, aspect, zn, zf)  — the book's perspective
+// projection, §5.6.3: [0,1] depth range (NOT GL's [-1,1] — another reason linalg's
+// projection builders must not be mixed in), w' = z in the last column drives the
+// perspective divide.
+perspective_fov_lh :: proc(fov_y, aspect, near_z, far_z: f32) -> Mat4 {
+	h := 1 / math.tan(fov_y * 0.5) // cot(fovY/2): 1 / half the near-plane height
+	w := h / aspect
+	range := far_z / (far_z - near_z)
+	return Mat4{
+		w, 0, 0, 0,
+		0, h, 0, 0,
+		0, 0, range, 1,
+		0, 0, -range * near_z, 0,
+	}
 }
