@@ -2,8 +2,7 @@
 
 A chapter-by-chapter companion for porting the book's C++ samples to Odin by hand, as a learning
 exercise. It deliberately does **not** port the code for you — it tells you what to port first,
-which library replaces what, and where the traps are. (Companion to `ZIG_PORTING_GUIDE.md`;
-same book analysis, different target language.)
+which library replaces what, and where the traps are.
 
 ## The stack
 
@@ -11,16 +10,16 @@ same book analysis, different target language.)
 | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | Win32 (`windows.h`)                                                                             | `core:sys/windows`                                                                       | Comprehensive; binds the wide (`...W`) variants                                                                                               |
 | D3D12 / DXGI                                                                                    | `vendor:directx/d3d12`, `vendor:directx/dxgi`                                            | Ships with the compiler. Covers everything the book uses, incl. DXR & mesh shaders — plus `IInfoQueue1` and DRED (see ch 4 side quest)        |
-| dxc COM API (runtime shader compile)                                                            | `vendor:directx/dxc`                                                                     | **Fully bound**, and `dxcompiler.dll`/`dxil.dll` ship in the vendor folder — the book's runtime-compile flow ports 1:1 (unlike the Zig stack) |
+| dxc COM API (runtime shader compile)                                                            | `vendor:directx/dxc`                                                                     | **Fully bound**, and `dxcompiler.dll`/`dxil.dll` ship in the vendor folder — the book's runtime-compile flow ports 1:1 |
 | DirectXMath / SimpleMath                                                                        | built-in `matrix[4,4]f32` + `[N]f32` arrays + `core:math/linalg`                         | Operator overloading exists! But conventions differ — read the Matrices section carefully                                                     |
-| DirectXCollision                                                                                | *hand-roll* (small)                                                                      | Needed at ch 16–17; same gap as Zig                                                                                                           |
+| DirectXCollision                                                                                | *hand-roll* (small)                                                                      | Needed at ch 16–17                                                                                                                            |
 | Dear ImGui 1.85 + Win32/DX12 backends                                                           | community **Capati/odin-imgui** (bundles 1.92.x-docking, includes win32 + dx12 backends) | Not in vendor; the book's widget calls map 1:1                                                                                                |
-| DirectXTK12 (`ResourceUploadBatch`, `CreateStaticBuffer`, `DDSTextureLoader`, `GraphicsMemory`) | *hand-roll*                                                                              | Same two helpers as the Zig port — **plus a DDS parser**: Odin has no DDS loader anywhere (biggest single gap vs Zig)                         |
+| DirectXTK12 (`ResourceUploadBatch`, `CreateStaticBuffer`, `DDSTextureLoader`, `GraphicsMemory`) | *hand-roll*                                                                              | Two small helpers — **plus a DDS parser**: nothing in `core:`/`vendor:` reads DDS, the port's biggest single gap (ch 9)                       |
 | PPL (`parallel_for`)                                                                            | serial loop or `core:thread`                                                             | Only the CPU Waves demos (ch 7–12)                                                                                                            |
 | Agility SDK 614 (`D3D12SDKVersion` export)                                                      | optional                                                                                 | See ch 4 — on Windows 11 the inbox runtime already has SM 6.6; ship Agility only if you need it                                               |
 
-No version juggling: `vendor:` and `core:` track the Odin compiler itself — there is no
-zwindows-style "does it build on this compiler version" prerequisite. Grab a current Odin
+No version juggling: `vendor:` and `core:` track the Odin compiler itself, so there is no
+third-party binding layer to keep in sync with your compiler version. Grab a current Odin
 release and everything above is present.
 
 ## Global conventions (read once, applies everywhere)
@@ -128,51 +127,88 @@ every debug-layer warning as an error and your port ends up *more* correct than 
 The book's shaders/features are vendor-neutral (no wave intrinsics, no NVAPI); the 9070 XT runs
 everything including ch 26–27.
 
-Bonus vs the Zig stack: `ID3D12InfoQueue1` (message callbacks → stderr) and DRED are **already
-bound** in `vendor:directx/d3d12` — the ch 4 side quest needs no binding work here.
+Worth knowing early: `ID3D12InfoQueue1` (message callbacks → stderr) and DRED are **already
+bound** in `vendor:directx/d3d12`, so the ch 4 side quest needs no binding work.
 
 ### Odin-side leak detection (Tracking_Allocator) *(added with ch 7, 2026-07-19)*
 
 The D3D debug layer catches COM leaks; `core:mem.Tracking_Allocator` catches Odin heap
 leaks — the analogue of the C++ demos' CRT debug-heap check, wrapped in
-`common/mem_track.odin`. Every demo main starts with
-`context = common.mem_track_init()` (wraps **both** `context.allocator` and
-`context.temp_allocator` in debug builds) and calls `common.mem_track_report()` right
-before `os.exit` — *before*, because `os.exit` skips defers. Clean runs stay silent;
-leaks print `[odin-leak] N bytes at file(line:col)`; bad frees (double free, freeing a
-borrowed pointer — the C7_Waves trap) **panic at the offending call site**, which is the
-default `bad_free_callback` in current Odin.
+`common/mem_track.odin`.
 
-Three details that made it correct rather than merely present:
+Every demo main starts with `context = common.mem_track_init()`, which wraps **both**
+`context.allocator` and `context.temp_allocator` in debug builds, and ends with
+`common.mem_track_report()` immediately before `os.exit` — *before*, because `os.exit`
+skips defers. Clean runs stay silent; leaks print `[odin-leak] N bytes at file(line:col)`;
+bad frees (double free, freeing a borrowed pointer) **panic at the offending call site**,
+which is the default `bad_free_callback`.
 
-- **Context plumbing.** `proc "system"`/`proc "c"` callbacks have no Odin context, and
-  `runtime.default_context()` would silently bypass the trackers (worse: an alloc made
-  tracked but freed untracked leaves a phantom "leak"; the reverse panics). `d3d_app_init`
-  captures main's tracked context into `common.app_context`, and the WndProc + ImGui SRV
-  callbacks restore that instead. Exception: the `IInfoQueue1` debug callback keeps
-  `default_context()` — D3D12 may invoke it from driver threads, and `app_context` carries
-  main's *thread-local* temp arena. It only prints, so nothing is lost.
-- **Per-frame `free_all(context.temp_allocator)`** at the bottom of the `d3d_app_run`
-  loop. This was a latent bug: nothing ever reset the temp arena, so C7_Waves' per-frame
-  vertex slice (~450 KB) grew it without bound. The temp arena answers `.Free_All` to
-  `Query_Features`, so the temp tracker sets `clear_on_free_all` and its map empties each
-  frame too — steady-state overhead is near zero.
-- **Init order.** `tracking_allocator_init` must run while `context.allocator` is still
-  the raw heap allocator, so the trackers' own bookkeeping is untracked — the tracker's
-  mutex is not reentrant, and self-tracking would deadlock.
+**Context plumbing — the part that isn't obvious.** Odin's context is implicit but it is
+not global state: it's a hidden parameter passed down `proc "odin"` call chains. A
+`proc "system"` or `proc "c"` callback is entered *from C*, which severs that chain, so the
+callback has to rebuild a context itself.
+
+Rebuilding it with `runtime.default_context()` hands back the *raw* allocators, and that
+doesn't merely skip tracking — it corrupts it in both directions: memory allocated tracked
+but freed raw leaves a phantom leak in the report, while the reverse panics on a perfectly
+valid free. So `d3d_app_init` captures main's context into `common.app_context`, and the
+WndProc and ImGui SRV callbacks restore that instead. It's the same move as parking
+`^D3D_App` in `GWLP_USERDATA`: state that can't ride through the C boundary gets left where
+the callback can find it.
+
+One deliberate exception: the `IInfoQueue1` debug callback keeps `default_context()`,
+because D3D12 may invoke it from driver threads and `app_context` carries main's
+*thread-local* temp arena. That callback only prints, so nothing is lost.
+
+Two more details that make it correct:
+
+- **Per-frame `free_all(context.temp_allocator)`** at the bottom of the `d3d_app_run` loop.
+  Adding the tracker exposed a latent bug — nothing ever reset the temp arena, so
+  C7_Waves' per-frame vertex slice (~450 KB) grew it without bound. The arena answers
+  `.Free_All` to `Query_Features`, so the temp tracker sets `clear_on_free_all` and empties
+  its map each frame too; steady-state overhead is near zero.
+- **Init order:** `tracking_allocator_init` must run while `context.allocator` is still the
+  raw heap allocator, so the trackers' own bookkeeping stays untracked. The tracker's mutex
+  is not reentrant — self-tracking deadlocks.
 
 The C1–C3 test packages need none of this: `odin test` already wraps each test in its own
 tracking allocator (`ODIN_TEST_TRACK_MEMORY`, on by default).
 
+### Verifying a demo end-to-end
+
+Each windowed demo gets the same check before it counts as done: a screenshot matching the
+C++ framing, a resize storm, Escape → exit 0, debug layer silent, both leak reports silent.
+The automation is PowerShell plus P/Invoke, and every trap below cost real time to find.
+
+- **Make the probe thread per-monitor DPI aware** (`SetThreadDpiAwarenessContext(-4)`). At
+  150% scale an unaware process gets DPI-virtualized `GetWindowRect` coordinates, so
+  `CopyFromScreen` crops the window — a centered box looks off-center and you go hunting a
+  rendering bug that was never there. `PrintWindow` with `PW_RENDERFULLCONTENT` additionally
+  captures windows that are overlapped.
+- **Escape arrives on `WM_KEYUP`,** not `WM_KEYDOWN` — that's where the book's `MsgProc`
+  handles `VK_ESCAPE`. A posted KEYDOWN is silently ignored and the demo never exits.
+- **ImGui clicks need a real cursor** (`SetCursorPos` + `mouse_event`, saving and restoring
+  the user's position), because the win32 backend re-reads `GetCursorPos` every focused
+  frame and overwrites posted mouse positions. Call `SetForegroundWindow` first or the click
+  lands in whatever window has focus.
+- **`CW_USEDEFAULT` cascades window positions** per boot session, so never hardcode the
+  origin: read `GetWindowRect`, then map `physical = origin + 1.5 × window-relative-virtual`
+  at 150% scale.
+- **PowerShell 5.1 needs `$null = $p.Handle`** cached before the process exits, or
+  `$p.ExitCode` comes back empty.
+- **Check line endings with `file`**, which names CRLF explicitly — not with
+  `grep -c $'\r'`, because MSYS tools translate line endings on read and report CRLF for
+  files that are pure LF.
+
 ### Shaders
 
-Two workable options — and unlike the Zig port, the book's own flow is available:
+Two workable options, and the book's own flow is one of them:
 
 - **Mirror the book (recommended here):** `vendor:directx/dxc` binds `IDxcCompiler3`/`IDxcUtils`
   fully and ships `dxcompiler.dll` + `dxil.dll`. Port `d3dUtil::CompileShader` and the
   `ShaderLib::Init` table nearly line-for-line; you keep edit-shader-and-rerun iteration with no
   build step.
-- **Precompile offline:** Odin has no `build.zig`-style build system, so offline compilation
+- **Precompile offline:** Odin has no integrated build system, so offline compilation
   means an external script (justfile/PowerShell) running `dxc.exe` before `odin build`, then
   embedding blobs with `#load("shader.dxil")`. Fine, but it's extra tooling for less flexibility.
 
@@ -274,8 +310,8 @@ exercise):
 - Full surface available: `WNDCLASSEXW`, `RegisterClassExW`, `CreateWindowExW`, `ShowWindow`,
   `GetMessageW`/`PeekMessageW`, `TranslateMessage`, `DispatchMessageW`, `DefWindowProcW`,
   `WM_*` constants.
-- Wide strings: window titles/class names are UTF-16 — `windows.utf8_to_wstring(...)`
-  (or `L(...)` helpers); this is the one ergonomic difference from the ANSI-flavored Zig path.
+- Wide strings: window titles/class names are UTF-16 — `windows.utf8_to_wstring(...)` for
+  runtime strings, `windows.L("…")` for literals.
 - The `WndProc`: `wnd_proc :: proc "system" (hwnd, msg, wparam, lparam) -> LRESULT` — note
   `proc "system"` for the calling convention, and that a `"system"` proc has no default
   context (use `context = runtime.default_context()` inside if you need Odin features there).
@@ -283,15 +319,18 @@ exercise):
   Do both.
 
 **Ported:** `odin_port/APPENDIX_A` (`odin run odin_port/APPENDIX_A`) — the appendix-text
-program with `d3dApp.cpp`'s conventions (no Appendix A sample ships in the 2nd ed). Notes
-that materialized: plain `RegisterClassW`/`WNDCLASSW` are bound (not just the Ex variants);
-`windows.L("…")` is `intrinsics.constant_utf16_cstring` — compile-time wide literals;
-`IDI_APPLICATION`/`IDC_ARROW` are typed as `cstring`, so cast `win._IDI_APPLICATION`
-(`rawptr`) to `LPCWSTR` for the W loaders; `GetMessageW` returns `INT`, so the book's `-1`
-error check ports directly; Odin makes unreachable code a compile error (mind that when
-temporarily injecting error-path tests). Fatal errors follow the port convention:
-`report_error` does stderr + `MessageBoxW`, both verified. Console subsystem kept for the
-ch 4 stderr story (`-subsystem:windows` for ship builds).
+program with `d3dApp.cpp`'s conventions, since no Appendix A sample ships in the 2nd ed.
+
+Notes that materialized: plain `RegisterClassW`/`WNDCLASSW` are bound, not just the Ex
+variants. `windows.L("…")` is `intrinsics.constant_utf16_cstring`, i.e. compile-time wide
+literals. `IDI_APPLICATION`/`IDC_ARROW` are typed as `cstring`, so cast `win._IDI_APPLICATION`
+(a `rawptr`) to `LPCWSTR` for the W loaders. `GetMessageW` returns `INT`, so the book's `-1`
+error check ports directly. And Odin makes unreachable code a compile error — mind that when
+temporarily injecting error-path tests.
+
+Fatal errors follow the port convention: `report_error` writes to stderr *and* shows a
+`MessageBoxW`, both verified. The console subsystem is kept deliberately for the ch 4 stderr
+story (`-subsystem:windows` for ship builds).
 
 ---
 
@@ -343,31 +382,41 @@ Per-demo UI is `im.text/slider_float/checkbox` — 1:1 with the book's calls.
 layer silent.
 
 **Ported (part 1 — core):** `odin_port/C4_Init_Direct3D` + `odin_port/common`
-(`odin run odin_port/C4_Init_Direct3D -debug`). The C++ virtual base class became struct
-`D3D_App` with proc-pointer virtuals (`update`/`draw` + optional mouse hooks); demos embed
-it via `using base: common.D3D_App` and cast back (subtype polymorphism). The `GetApp()`
-singleton became a `^D3D_App` in `GWLP_USERDATA` (thin pointer — simpler than the Rust
-port's fat-pointer dance). `wnd_proc` and the InfoQueue1 callback both start with
-`context = runtime.default_context()`. Manual COM discipline throughout, per the plan:
-enumerated adapters released when not kept, QI-upgrades release the old interface,
-`d3d_app_shutdown` releases children-before-device after a queue flush. Verified:
-pixel-exact LightSteelBlue via screen sampling, five programmatic resizes, debug layer
-enabled + InfoQueue1→stderr with zero messages, Escape → clean exit, ~8900 fps on the
-9070 XT. Gotcha: vendor's `PFN_MESSAGE_CALLBACK` is `proc "c"` (cdecl), not "system".
+(`odin run odin_port/C4_Init_Direct3D -debug`).
 
-**Ported (part 2 — ImGui, 2026-07):** the Options panel renders (verified by screenshot:
-frame stats + VideoMemoryInfo via `QueryVideoMemoryInfo`; the GraphicsMemoryStatistics
-section waits for the ch 6–7 upload arena). Capati/odin-imgui is vendored at
-`odin_port/libs/imgui` (win32+dx12 backends; build/copy steps in `odin_port/README.md` —
-Python + premake5 + MSBuild). Findings: Dear ImGui 1.92's DX12 backend replaced the book's
-single-SRV `Init` with an `InitInfo` struct whose `SrvDescriptorAllocFn`/`FreeFn`
-callbacks map *exactly* onto `CbvSrvUavHeap.NextFreeIndex/ReleaseIndex` (the C++
-singleton is passed explicitly here, via `InitInfo.UserData`); `WndProcHandler` hooks the
-message pump first, as in `MainWndProc`; shutdown order matters — ImGui before the heap
-before the base, so the SRV free callbacks still have a live heap and the leak report
-stays silent (it does). Capati build bug found & fixed locally (PR-worthy): its premake
-script patches `imgui_impl_win32.cpp` by hardcoded line numbers that went stale in ImGui
-1.92.8 → `error C2159`; our checkout patches by pattern instead.
+The C++ virtual base class became struct `D3D_App` with proc-pointer virtuals (`update` and
+`draw`, plus optional mouse hooks); demos embed it via `using base: common.D3D_App` and cast
+back — Odin's subtype-polymorphism idiom. The `GetApp()` singleton became a `^D3D_App`
+parked in `GWLP_USERDATA`, a plain thin pointer. Both `wnd_proc` and the InfoQueue1 callback
+must establish a context on entry (see the leak-detection section for which one, and why it
+matters more than it looks).
+
+Manual COM discipline throughout, per the plan: enumerated adapters are released when not
+kept, QI-upgrades release the old interface, and `d3d_app_shutdown` releases
+children-before-device after a queue flush.
+
+Verified: pixel-exact LightSteelBlue via screen sampling, five programmatic resizes, debug
+layer enabled with InfoQueue1→stderr and zero messages, Escape → clean exit, ~8900 fps on the
+9070 XT. Gotcha: vendor's `PFN_MESSAGE_CALLBACK` is `proc "c"` (cdecl), not `"system"`.
+
+**Ported (part 2 — ImGui, 2026-07):** the Options panel renders, verified by screenshot — frame stats
+plus VideoMemoryInfo via `QueryVideoMemoryInfo`. (The GraphicsMemoryStatistics section waits
+for the ch 6–7 upload arena.) Capati/odin-imgui is vendored at `odin_port/libs/imgui` with
+the win32+dx12 backends; build and copy steps are in `odin_port/README.md`, and need Python,
+premake5, and MSBuild.
+
+Findings: Dear ImGui 1.92's DX12 backend replaced the book's single-SRV `Init` with an
+`InitInfo` struct whose `SrvDescriptorAllocFn`/`FreeFn` callbacks map *exactly* onto
+`CbvSrvUavHeap.NextFreeIndex`/`ReleaseIndex` — where the book leans on a C++ singleton, the
+heap is passed explicitly through `InitInfo.UserData`. `WndProcHandler` hooks the message
+pump first, as in `MainWndProc`.
+
+Shutdown order matters: ImGui before the heap before the base, so the SRV free callbacks
+still have a live heap to release into and the leak report stays silent (it does).
+
+One build bug found and fixed locally in the Capati checkout (PR-worthy): its premake script
+patches `imgui_impl_win32.cpp` by hardcoded line numbers, which went stale in ImGui 1.92.8
+and produced `error C2159`. Ours patches by pattern instead.
 
 **DXC version note (checked 2026-07):** the vendor folder ships dxcompiler.dll **1.6.2112
 (Dec 2021)** — old, but it postdates SM 6.6 (added in 1.6.2104), so it should compile the
@@ -470,19 +519,25 @@ Theory, no demo. Two porting hooks: this chapter *derives the perspective matrix
 **Ported (2026-07-18):** `odin_port/C6_Box` + `odin_port/C6_BoxGrid`
 (`odin run odin_port/C6_Box -debug` **from the repo root** — the shader path
 `Shaders/BasicColor.hlsl` and the DXC DLLs resolve relative to it; see
-`odin_port/README.md` for the one-time DLL copy). New common code:
-`upload_buffer.odin` (`Upload_Buffer($T)` — the C++ template became parametric
-polymorphism), `mesh_util.odin` (`Mesh_Geometry` + `Submesh_Geometry` + a data-only
-`Bounding_Box`), `upload_batch.odin` (**DirectXTK12-derived, provenance header**: a
-synchronous `Resource_Upload_Batch` + `create_static_buffer`; the C++ `std::future` End()
-became end-and-wait — the demos block on the future before first draw anyway), and in
-`d3d_util.odin`: `calc_constant_buffer_byte_size`, `buffer_desc`, the `CD3DX12_*_DESC`
-defaults spelled out as constants, `init_default_pso`, and the DXC `compile_shader`
-(`IDxcUtils`/`IDxcCompiler3`/`IDxcResult`, error text via `IDxcBlobUtf8` → `report_error`,
-shader PDBs written to `HLSL PDB/` in debug builds like the C++). `d3d_math` gained
-`look_at_lh` and `perspective_fov_lh` (ch 5's derivations, [0,1] depth). `D3D_App` gained
-the `on_resize` virtual — overrides call `common.on_resize` first (the C++ base call),
-then recompute the projection; it defaults to the base body when unset, so C4 is untouched.
+`odin_port/README.md` for the one-time DLL copy).
+
+New common code:
+
+- `upload_buffer.odin` — `Upload_Buffer($T)`, where the C++ template became parametric
+  polymorphism.
+- `mesh_util.odin` — `Mesh_Geometry`, `Submesh_Geometry`, and a data-only `Bounding_Box`.
+- `upload_batch.odin` — **DirectXTK12-derived, provenance header**: a synchronous
+  `Resource_Upload_Batch` + `create_static_buffer`. The C++'s `std::future`-returning `End()`
+  became end-and-wait, since the demos block on that future before the first draw anyway.
+- In `d3d_util.odin`: `calc_constant_buffer_byte_size`, `buffer_desc`, the `CD3DX12_*_DESC`
+  defaults spelled out as constants, `init_default_pso`, and the DXC `compile_shader`
+  (`IDxcUtils`/`IDxcCompiler3`/`IDxcResult`, error text via `IDxcBlobUtf8` → `report_error`,
+  shader PDBs written to `HLSL PDB/` in debug builds like the C++).
+
+`d3d_math` gained `look_at_lh` and `perspective_fov_lh` — ch 5's derivations, [0,1] depth.
+`D3D_App` gained the `on_resize` virtual: overrides call `common.on_resize` first (the C++
+base call) and then recompute the projection, and it defaults to the base body when unset, so
+C4 needed no changes.
 
 Findings and traps from the port:
 
@@ -500,11 +555,9 @@ Findings and traps from the port:
   because InfoQueue1 pipes warnings to stderr. Harmless: buffers implicitly promote from
   COMMON to COPY_DEST on first copy, and the recorded `COPY_DEST → final` barrier stays
   legal.
-- **Screenshot-verification trap (tooling, not D3D):** on a 150% display, an unaware
-  PowerShell probe gets DPI-virtualized `GetWindowRect` coordinates, so `CopyFromScreen`
-  crops/mislocates the window — the box looked "off-center" until the probe thread was
-  made per-monitor DPI aware (`SetThreadDpiAwarenessContext(-4)`). `PrintWindow` with
-  `PW_RENDERFULLCONTENT` also dodges overlapping windows.
+- **The first screenshot looked wrong and wasn't** — a DPI trap in the harness, not a
+  rendering bug. This is where the "Verifying a demo end-to-end" section above came from;
+  read it before trusting any capture.
 
 Verified (both demos): colored box(es) over LightSteelBlue matching the C++ framing — Box
 centered with cyan/yellow/red/white corners, BoxGrid's 3×3 with per-object translations;
@@ -527,48 +580,62 @@ back to solid); five programmatic resizes with the projection recomputed through
 flicker or hangs.
 
 **Ported (Shapes, 2026-07-18):** `odin_port/C7_Shapes`
-(`odin run odin_port/C7_Shapes -debug`, from the repo root). New common code:
-`mesh_gen.odin` (the full MeshGen — box/grid/sphere/geosphere/cylinder/quad + subdivide +
-`append_submesh`; `Mesh_Gen_Data` owns dynamic arrays, `mesh_gen_data_destroy` after
-upload) and `graphics_memory.odin` (**DirectXTK12 GraphicsMemory, reduced port with
-provenance header**: 64 KiB upload pages, `allocate_constant` at 256-byte alignment,
-`commit(queue)` fences this frame's pages and recycles retired ones,
-`get_statistics` feeds the ImGui GraphicsMemoryStatistics section — which exists in the
-port for the first time). The allocator lives on `D3D_App` as `linear_allocator`
-(C++ `mLinearAllocator`); pages are lazy so ch 4/6 demos pay only for its fence.
-Demo-side: `FrameResource` ring (per-frame allocator + pass CB + fence value — **Draw no
-longer flushes**; Update waits only when the ring wraps), render items in
-`[dynamic]^Render_Item` + per-layer lists (`[Render_Layer][dynamic]^Render_Item`), root
-**descriptors** (`SetGraphicsRootConstantBufferView`) instead of ch 6's tables, and the
-C++'s `unordered_map` shader/PSO/geometry tables as Odin maps — note map values aren't
-addressable, so `mGeometries` maps to `map[string]^Mesh_Geometry` with `new`/`free`.
-Verified: the book's shapes scene (wireframe default ON, per the header), stats panel
-live and stable (3 pages / 196 KiB total, one page in flight — the arena recycles rather
-than grows), orbit drag, five resizes, Escape → exit 0, debug layer silent, leak report
-silent. Verification-harness gotcha: `CW_USEDEFAULT` cascades per boot session — never
-hardcode the window origin for injected clicks; read `GetWindowRect` (DPI-aware) and map
-`physical = origin + 1.5 × window-relative-virtual` at 150% scale.
+(`odin run odin_port/C7_Shapes -debug`, from the repo root).
+
+New common code: `mesh_gen.odin` is the full MeshGen — box, grid, sphere, geosphere,
+cylinder, quad, plus `subdivide` and `append_submesh`; `Mesh_Gen_Data` owns dynamic arrays,
+so call `mesh_gen_data_destroy` once uploaded. `graphics_memory.odin` is a **reduced port of
+DirectXTK12's GraphicsMemory, with a provenance header**: 64 KiB upload pages,
+`allocate_constant` at 256-byte alignment, `commit(queue)` to fence this frame's pages and
+recycle retired ones, and `get_statistics` feeding the ImGui GraphicsMemoryStatistics
+section — which exists in the port for the first time here. The allocator lives on `D3D_App`
+as `linear_allocator` (C++ `mLinearAllocator`), and pages are allocated lazily, so ch 4/6
+demos pay only for its fence.
+
+Demo-side, this is where the book's CPU/GPU parallelism arrives: a `FrameResource` ring
+(per-frame allocator, pass CB, and fence value) means **Draw no longer flushes** and Update
+waits only when the ring wraps. Render items live in `[dynamic]^Render_Item` plus per-layer
+lists (`[Render_Layer][dynamic]^Render_Item`). Bindings switch to root **descriptors**
+(`SetGraphicsRootConstantBufferView`) from ch 6's tables.
+
+The C++'s `unordered_map` shader/PSO/geometry tables become Odin maps, with one wrinkle: map
+values aren't addressable, so `mGeometries` becomes `map[string]^Mesh_Geometry` with explicit
+`new`/`free`.
+
+Verified: the book's shapes scene (wireframe defaults ON, per the header), the stats panel
+live and stable at 3 pages / 196 KiB total with one page in flight — proving the arena
+recycles rather than grows — plus orbit drag, five resizes, Escape → exit 0, debug layer
+silent, leak report silent.
 
 **Ported (Waves, 2026-07-19):** `odin_port/C7_Waves`
-(`odin run odin_port/C7_Waves -debug`, from the repo root). The wave sim (`waves.odin`)
-is the book's finite-difference scheme, ported verbatim except **deliberately serial**:
-the C++ wraps both interior loops in `concurrency::parallel_for` (PPL); the port keeps
-plain loops (user decision — multithreading waits until much later, no TSan on Windows;
-at 128×128 the serial update doesn't dent the frame time). New moving parts vs Shapes:
-`Upload_Buffer` gained the C++'s second CopyData overload as `copy_data_slice`
-(contiguous array, asserts not-a-CB); each FrameResource carries a `waves_vb`
-(`Upload_Buffer(Color_Vertex)`, 128×128 vertices) that update_waves refills from the
-solution each frame; the water `Mesh_Geometry.vertex_buffer_gpu` is re-pointed at the
-current frame's VB every frame. **Trap worth remembering:** that C++ line
-(`geo->VertexBufferGPU = currWavesVB->Resource()`) silently AddRefs through ComPtr — in
-Odin it's a plain borrow, so teardown must nil the field before `mesh_geometry_destroy`
-or it double-Releases a buffer the frame resource already released. Land geometry =
-MeshGen grid + hills height function + height-banded vertex colors; water indices are
-**R32_UINT** (128×128 > 0xffff). `MathHelper::Rand/RandF` map to `core:math/rand`'s
-`int_max` (mind the inclusive-range +1) and `float32_range`. Verified: animated ripples
-(two captures 1.2 s apart differ), hills color bands, the three wave sliders at C++
-defaults, five resizes, Escape → exit 0, debug layer silent, leak report silent (which
-specifically proves the borrowed-VB teardown is balanced). Chapter 7 complete.
+(`odin run odin_port/C7_Waves -debug`, from the repo root).
+
+The wave sim in `waves.odin` is the book's finite-difference scheme ported verbatim, with one
+**deliberate deviation: it is serial.** The C++ wraps both interior loops in
+`concurrency::parallel_for` (PPL); the port keeps plain loops, because multithreading waits
+until much later in this project and there's no TSan on Windows to check it with. At 128×128
+the serial update doesn't dent the frame time.
+
+New moving parts versus Shapes: `Upload_Buffer` gained the C++'s second `CopyData` overload as
+`copy_data_slice` (contiguous array, asserts it isn't a 256-strided CB), and each
+`FrameResource` carries a `waves_vb` — an `Upload_Buffer(Color_Vertex)` of 128×128 vertices
+that `update_waves` refills from the solution each frame.
+
+**The trap worth remembering** is the line that re-points the water geometry at that buffer.
+In C++, `geo->VertexBufferGPU = currWavesVB->Resource()` silently AddRefs through ComPtr, so
+its destructor's Release is balanced. In Odin the same assignment is a plain borrow, so
+teardown must nil the field before `mesh_geometry_destroy` or it double-Releases a buffer the
+frame resource already released. Expect this any time a demo aliases a resource it doesn't own.
+
+Smaller notes: land geometry is a MeshGen grid plus the hills height function and
+height-banded vertex colors; water indices are **R32_UINT**, since 128×128 exceeds 0xffff; and
+`MathHelper::Rand`/`RandF` map to `core:math/rand`'s `int_max` (mind the +1 for the book's
+inclusive range) and `float32_range`.
+
+Verified: animated ripples (two captures 1.2 s apart differ), hills color bands, the three
+wave sliders at C++ defaults, five resizes, Escape → exit 0, debug layer silent, and a silent
+leak report — which is specifically what proves the borrowed-VB teardown is balanced. Chapter
+7 complete.
 
 ### Ch 8 — Lighting  *(LitShapes, LitWaves)*
 
@@ -582,9 +649,9 @@ packing minefield at its worst; normals in `MeshGen`. Nothing new externally.
 - **DDS loader** — the biggest Odin-specific gap: nothing in `core:`/`vendor:` reads DDS
   (stb_image doesn't either). Hand-roll: magic + `DDS_HEADER` + optional DX10 header + map the
   handful of formats the book's ~60 textures use (BC1/BC3/BC5/BC7 + a few uncompressed), then
-  compute per-mip pitches. Reference implementations: zwindows `dds_loader.zig` or DirectXTK12's
-  `DDSTextureLoader.cpp`. Budget 200–300 lines / an evening or two. (Check for a community Odin
-  DDS package first — the situation may have improved.)
+  compute per-mip pitches. Reference implementation: DirectXTK12's `DDSTextureLoader.cpp`.
+  Budget 200–300 lines / an evening or two. (Check for a community Odin DDS package first —
+  the situation may have improved.)
 - **Texture upload helper** (replaces `ResourceUploadBatch`): `GetCopyableFootprints` → copy
   into upload buffer respecting the **256-byte-aligned row pitch** (row by row, not one copy) →
   `CopyTextureRegion` per subresource → barrier. DDS mips are pre-baked; no mip generation
@@ -735,7 +802,7 @@ blend PSOs from ch 10; `Random.h` → `core:math/rand`.
 `ID3D12Device2->CreatePipelineState` with a **pipeline state stream** — packed, alignment-
 sensitive `{subobject-type tag, payload}` records. The bindings define the enum/desc types but
 there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struct yourself with
-`#align` / explicit padding. Fiddliest struct-layout task in the port (same as in Zig).
+`#align` / explicit padding. Fiddliest struct-layout task in the port.
 
 ### Ch 27 — Ray Tracing  *(IntroRayTracing, HybridRayTracing)*
 
@@ -772,6 +839,9 @@ there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struc
 | Static-buffer upload helper | ch 6 | small | DirectXTK12 `CreateStaticBuffer` |
 | `shared_types.odin` (grow per chapter) | ch 6 | small | `SharedTypes.h` |
 | dxc `compile_shader` + shader table | ch 6 | small | `d3dUtil::CompileShader` + `ShaderLib` (bindings pre-exist) |
+| `mesh_gen.odin` (box/grid/sphere/geosphere/cylinder/quad) | ch 7 | medium | book's `MeshGen` |
+| Linear upload arena + `Frame_Resource` ring | ch 7 | medium | DirectXTK12 `GraphicsMemory` + book's Common |
+| `mem_track.odin` (Tracking_Allocator wiring) | ch 7 | tiny | CRT debug-heap leak check |
 | **DDS parser** | ch 9 | **medium-large** | DirectXTK12 `DDSTextureLoader` — Odin's biggest gap |
 | Texture upload helper (mips → arrays → cubes → from-memory) | ch 9 (12, 18, 21) | medium | DirectXTK12 `ResourceUploadBatch` |
 | `matrix_reflect`/`matrix_shadow` | ch 11 | tiny | DirectXMath |
@@ -781,17 +851,25 @@ there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struc
 | `.raw` heightmap reader | ch 24 | tiny | book code |
 | Pipeline-state-stream struct | ch 26 | small-fiddly | `CD3DX12_PIPELINE_STATE_STREAM` |
 
-## Odin vs Zig for this port — the honest one-paragraph comparison
+## What Odin gives you, and what you build yourself
 
-Odin starts ahead: `vendor:` ships with the compiler (no zwindows-on-0.16 prerequisite), dxc is
-fully bound (the book's shader flow ports 1:1), InfoQueue1/DRED are pre-bound (the stderr side
-quest is trivial), operator overloading keeps math readable, and the load/store split disappears
-(one vector type, one matrix type — with `Mat4 :: #row_major matrix[4,4]f32` it's byte-identical
-to DirectXMath, so even the transpose-on-upload reads line-for-line with the book). It gives two
-things back: **no DDS loader anywhere** (the one genuinely missing piece — an evening or two of
-format parsing before ch 9), and a **math-library mismatch** — `core:math/linalg`'s builders are
-GL-flavored column-vector, so the view/projection/rotation matrices come from your own
-`d3d_math.odin` (typed from the book's printed forms) rather than the standard library, and
-linalg is demoted to vectors, quaternions, and convention-agnostic ops. Both are manageable;
-neither is hidden. Where Zig wins: zwindows hands you the DDS loader, and zmath *is* a
-DirectXMath port — no convention decisions to make at all.
+Two things shape the whole port, and it's worth knowing both before you start.
+
+**What comes for free.** `vendor:` ships with the compiler, so D3D12, DXGI, DXC, and dxgidebug
+are all present and version-matched — including `ID3D12InfoQueue1` and DRED, which reduces the
+debug-output side quest to about a dozen lines. dxc being fully bound means the book's runtime
+shader-compile flow ports 1:1 and you keep edit-shader-and-rerun iteration with no build step.
+Operator overloading keeps matrix and vector math reading like the book rather than like
+function calls.
+
+Best of all, the load/store split disappears: `XMFLOAT3` versus `XMVECTOR`, and every
+`XMLoadFloat3`/`XMStoreFloat3` pair in the book, collapses into one `[3]f32` that both stores
+and computes. With `Mat4 :: #row_major matrix[4,4]f32` the matrix side is byte-identical to
+`XMFLOAT4X4`, so even the transpose-on-upload line survives verbatim.
+
+**What you build yourself.** A **DDS loader** is the one genuinely missing piece — nothing in
+`core:` or `vendor:` reads DDS, so budget an evening or two of format parsing before ch 9. And
+the **D3D-convention matrix builders**, because `core:math/linalg`'s are GL-flavored
+column-vector: view, projection, and rotation come from your own `d3d_math.odin`, typed from
+the forms Luna prints, with linalg demoted to vectors, quaternions, and convention-agnostic
+operations. Neither gap is hidden or hard, and the inventory table above lists everything else.

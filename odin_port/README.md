@@ -7,8 +7,9 @@ with DirectX 12* (2nd ed.). Chapter-by-chapter porting notes live in
 ## Layout
 
 Directories mirror the book's `Demos/` folders (one Odin package per demo); files within a
-package mirror the demo's `.cpp` files. Shared code lives in its own packages
-(`d3d_math`, `test_util`, later a `common` equivalent).
+package mirror the demo's `.cpp` files. Shared code lives in its own packages: `common`
+(the book's `Common/` — app framework, timer, descriptor/upload helpers), `d3d_math`,
+`test_util`, and the vendored `libs/imgui`.
 
 ## Running
 
@@ -84,15 +85,15 @@ clone it must be rebuilt and copied in:
 `imgui.ini` (window layout state Dear ImGui writes to the working directory at runtime)
 is gitignored.
 
-## The convention decision (differs from `rust_port/`!)
+## The convention decision
 
 This port keeps **the book's row-vector convention**, via
 `Mat4 :: #row_major matrix[4, 4]f32` in `d3d_math` — byte-identical to `XMFLOAT4X4`. As a
 result, matrix literals are typed exactly as the book prints them, concatenation reads
 left-to-right exactly as the book writes it (`S * R * T`), points transform as `v * M`, and
-the transpose-before-CB-upload line survives unchanged. Contrast with `rust_port/`, where
-glam's column-vector convention reverses every matrix product. The view/projection/rotation
-*builders* are hand-rolled in `d3d_math` from the book's printed forms — `core:math/linalg`'s
-builders are GL-flavored column-vector and must not be mixed in (its convention-agnostic
-operations — `dot`, `cross`, `normalize`, `inverse`, `transpose`, element-wise math — are
-used freely).
+the transpose-before-CB-upload line survives unchanged.
+
+The view/projection/rotation *builders* are hand-rolled in `d3d_math` from the book's printed
+forms — `core:math/linalg`'s builders are GL-flavored column-vector and must not be mixed in.
+Its convention-agnostic operations (`dot`, `cross`, `normalize`, `inverse`, `transpose`,
+element-wise math) are used freely.
