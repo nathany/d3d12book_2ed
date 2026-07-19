@@ -89,6 +89,8 @@ Box_App :: struct {
 }
 
 main :: proc() {
+	context = common.mem_track_init() // Odin-side leak detection (debug builds); see common/mem_track.odin
+
 	app: Box_App
 
 	// C++ member initializers (BoxApp.h).
@@ -144,6 +146,7 @@ main :: proc() {
 	common.mesh_geometry_destroy(&app.box_geo)
 	common.cbv_srv_uav_heap_destroy(&app.cbv_srv_uav_heap)
 	common.d3d_app_shutdown(&app.base)
+	common.mem_track_report() // before os.exit — os.exit skips defers
 	os.exit(code)
 }
 

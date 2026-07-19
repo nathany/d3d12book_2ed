@@ -131,6 +131,39 @@ everything including ch 26–27.
 Bonus vs the Zig stack: `ID3D12InfoQueue1` (message callbacks → stderr) and DRED are **already
 bound** in `vendor:directx/d3d12` — the ch 4 side quest needs no binding work here.
 
+### Odin-side leak detection (Tracking_Allocator) *(added with ch 7, 2026-07-19)*
+
+The D3D debug layer catches COM leaks; `core:mem.Tracking_Allocator` catches Odin heap
+leaks — the analogue of the C++ demos' CRT debug-heap check, wrapped in
+`common/mem_track.odin`. Every demo main starts with
+`context = common.mem_track_init()` (wraps **both** `context.allocator` and
+`context.temp_allocator` in debug builds) and calls `common.mem_track_report()` right
+before `os.exit` — *before*, because `os.exit` skips defers. Clean runs stay silent;
+leaks print `[odin-leak] N bytes at file(line:col)`; bad frees (double free, freeing a
+borrowed pointer — the C7_Waves trap) **panic at the offending call site**, which is the
+default `bad_free_callback` in current Odin.
+
+Three details that made it correct rather than merely present:
+
+- **Context plumbing.** `proc "system"`/`proc "c"` callbacks have no Odin context, and
+  `runtime.default_context()` would silently bypass the trackers (worse: an alloc made
+  tracked but freed untracked leaves a phantom "leak"; the reverse panics). `d3d_app_init`
+  captures main's tracked context into `common.app_context`, and the WndProc + ImGui SRV
+  callbacks restore that instead. Exception: the `IInfoQueue1` debug callback keeps
+  `default_context()` — D3D12 may invoke it from driver threads, and `app_context` carries
+  main's *thread-local* temp arena. It only prints, so nothing is lost.
+- **Per-frame `free_all(context.temp_allocator)`** at the bottom of the `d3d_app_run`
+  loop. This was a latent bug: nothing ever reset the temp arena, so C7_Waves' per-frame
+  vertex slice (~450 KB) grew it without bound. The temp arena answers `.Free_All` to
+  `Query_Features`, so the temp tracker sets `clear_on_free_all` and its map empties each
+  frame too — steady-state overhead is near zero.
+- **Init order.** `tracking_allocator_init` must run while `context.allocator` is still
+  the raw heap allocator, so the trackers' own bookkeeping is untracked — the tracker's
+  mutex is not reentrant, and self-tracking would deadlock.
+
+The C1–C3 test packages need none of this: `odin test` already wraps each test in its own
+tracking allocator (`ODIN_TEST_TRACK_MEMORY`, on by default).
+
 ### Shaders
 
 Two workable options — and unlike the Zig port, the book's own flow is available:

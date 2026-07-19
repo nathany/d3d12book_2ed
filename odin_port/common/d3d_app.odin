@@ -26,6 +26,7 @@
 //    SM 6.6 (verified against the C++ demos, which resolve to the system D3D12Core.dll).
 package common
 
+import "base:runtime"
 import "core:fmt"
 import win "core:sys/windows"
 import d3d12 "vendor:directx/d3d12"
@@ -104,9 +105,19 @@ aspect_ratio :: proc(app: ^D3D_App) -> f32 {
 	return f32(app.client_width) / f32(app.client_height)
 }
 
+// Main's context, captured at the top of d3d_app_init — i.e. AFTER the demo installed the
+// tracking allocators via `context = common.mem_track_init()`. The Win32/ImGui callbacks
+// below restore this instead of runtime.default_context(), so allocations on those paths
+// (message handlers, on_resize, the ImGui SRV heap) go through the same (tracked)
+// allocators as everything else. Main-thread callbacks only — it borrows main's
+// thread-local temp arena (see register_debug_callback for the multi-thread case).
+@(private)
+app_context: runtime.Context
+
 // C++: D3DApp::Initialize() — window, then Direct3D. Call d3d_app_run afterwards (which
 // performs the initial OnResize, like the tail of the C++ Initialize).
 d3d_app_init :: proc(app: ^D3D_App) {
+	app_context = context // before init_main_window: CreateWindow already sends messages
 	// Defaults from the C++ member initializers, for anything the demo didn't set.
 	if app.main_wnd_caption == "" do app.main_wnd_caption = "d3d App"
 	if app.back_buffer_format == .UNKNOWN do app.back_buffer_format = .R8G8B8A8_UNORM
@@ -523,6 +534,12 @@ d3d_app_run :: proc(app: ^D3D_App) -> int {
 				win.Sleep(100)
 			}
 		}
+
+		// Reclaim this iteration's temp allocations (tprintf, utf8_to_wstring, the waves
+		// demo's per-frame vertex slice, …) — the once-per-frame-loop free_all Odin's temp
+		// arena is designed around. No C++ analogue. Also clears the temp tracking
+		// allocator's map (mem_track.odin).
+		free_all(context.temp_allocator)
 	}
 
 	return int(msg.wParam)
@@ -554,7 +571,7 @@ d3d_app_init_imgui :: proc(app: ^D3D_App, heap: ^Cbv_Srv_Uav_Heap) {
 			out_cpu: ^d3d12.CPU_DESCRIPTOR_HANDLE,
 			out_gpu: ^d3d12.GPU_DESCRIPTOR_HANDLE,
 		) {
-			context = default_context() // "c" callback: no Odin context
+			context = app_context // "c" callback: no Odin context; main thread, so main's
 			heap := (^Cbv_Srv_Uav_Heap)(info.UserData)
 			index := next_free_index(heap)
 			out_cpu^ = cpu_handle(heap, index)
@@ -565,7 +582,7 @@ d3d_app_init_imgui :: proc(app: ^D3D_App, heap: ^Cbv_Srv_Uav_Heap) {
 			cpu: d3d12.CPU_DESCRIPTOR_HANDLE,
 			gpu: d3d12.GPU_DESCRIPTOR_HANDLE,
 		) {
-			context = default_context()
+			context = app_context
 			heap := (^Cbv_Srv_Uav_Heap)(info.UserData)
 			// Recover the bindless index from the handle offset.
 			start: d3d12.GPU_DESCRIPTOR_HANDLE
@@ -720,7 +737,7 @@ wnd_proc :: proc "system" (
 	wparam: win.WPARAM,
 	lparam: win.LPARAM,
 ) -> win.LRESULT {
-	context = default_context()
+	context = app_context // main's (tracked) context — set by d3d_app_init before any window exists
 
 	// Hook Imgui into the message pump (C++: MainWndProc). Before ImGui init this is a
 	// harmless no-op returning 0.
@@ -856,7 +873,10 @@ register_debug_callback :: proc(app: ^D3D_App) {
 		description: cstring,
 		ctx: rawptr,
 	) {
-		context = default_context() // "system" proc: no context until we set one
+		// NOT app_context: D3D12 may invoke this from driver threads, and app_context
+		// carries main's thread-local temp arena. default_context gives this thread its
+		// own; eprintfln doesn't heap-allocate, so bypassing the tracker loses nothing.
+		context = default_context()
 		fmt.eprintfln("[d3d12 %v] (id %v) %s", severity, i32(id), description)
 	}
 

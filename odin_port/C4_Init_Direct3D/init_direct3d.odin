@@ -35,6 +35,8 @@ Init_Direct3D_App :: struct {
 }
 
 main :: proc() {
+	context = common.mem_track_init() // Odin-side leak detection (debug builds); see common/mem_track.odin
+
 	app: Init_Direct3D_App
 	app.main_wnd_caption = "d3d App"
 	app.update = update
@@ -57,6 +59,7 @@ main :: proc() {
 	common.d3d_app_shutdown_imgui(&app.base)
 	common.cbv_srv_uav_heap_destroy(&app.cbv_srv_uav_heap)
 	common.d3d_app_shutdown(&app.base)
+	common.mem_track_report() // before os.exit — os.exit skips defers
 	os.exit(code)
 }
 

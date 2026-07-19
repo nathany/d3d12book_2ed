@@ -103,6 +103,8 @@ Waves_App :: struct {
 }
 
 main :: proc() {
+	context = common.mem_track_init() // Odin-side leak detection (debug builds); see common/mem_track.odin
+
 	app: Waves_App
 
 	// C++ member initializers (WavesApp.h).
@@ -175,6 +177,7 @@ main :: proc() {
 	waves_destroy(&app.waves)
 	common.cbv_srv_uav_heap_destroy(&app.cbv_srv_uav_heap)
 	common.d3d_app_shutdown(&app.base)
+	common.mem_track_report() // before os.exit — os.exit skips defers
 	os.exit(code)
 }
 
