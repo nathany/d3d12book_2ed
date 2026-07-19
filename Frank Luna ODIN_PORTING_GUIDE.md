@@ -92,10 +92,16 @@ Same two rules as any D3D12 port, both manual:
    `calc_cb_size :: proc(n: int) -> int { return (n + 255) &~ 255 }`.
 2. HLSL packs fields into 16-byte registers (a `float3` then a `float` shares one; two `float3`s
    don't). Port `Shaders/SharedTypes.h` once into a `shared_types.odin` with explicit `_pad`
-   fields (Odin struct layout is C-like by default, so explicit padding works the same way).
+   fields, and mark every GPU-facing struct **`#packed`**.
 
-Getting rule 2 wrong produces garbage transforms, not errors. Matrices go in transposed, same
-as the book (see Matrices).
+`#packed` is not optional, and the reason is an Odin-specific trap: Odin's `matrix` types are
+SIMD-aligned — `align_of(Mat4)` is **32** — so any plain struct embedding one gets phantom
+padding HLSL doesn't have (a `float4x4` at byte 48 silently moves to 64). The book's structs
+hand-place every field at its natural offset already, so `#packed` strips only the phantom
+alignment. Then pin the sizes: `#assert(size_of(Per_Pass_CB) == 1552)` turns a dropped pad
+field into a compile error instead of garbage transforms — which is what getting rule 2 wrong
+produces at runtime, never an error message. Matrices go in transposed, same as the book (see
+Matrices).
 
 ### COM ref counting (the ComPtr replacement)
 
@@ -639,8 +645,71 @@ balanced.
 
 ### Ch 8 — Lighting  *(LitShapes, LitWaves)*
 
-**New this chapter:** `Light`/`MaterialData` in `shared_types.odin` — the float3-next-to-scalar
-packing minefield at its worst; normals in `MeshGen`. Nothing new externally.
+**New this chapter:**
+
+- The **real `Shaders/SharedTypes.h` structs**. The C++ shares that header between HLSL and C++
+  via macros; Odin can't include it, so this is where you port `PerObjectCB`, `PerPassCB`,
+  `Light`, and `MaterialData` byte-for-byte into `shared_types.odin` — full structs, since the
+  HLSL side declares every field even though ch 8 reads a handful. This retires the trimmed
+  demo-local cbuffer structs you've used since ch 6. It is the float3-next-to-scalar packing
+  minefield at its worst, plus the Odin matrix-alignment trap — reread **Constant-buffer
+  layout** above before typing, and `#assert` the sizes (192 / 48 / 1552 / 120).
+- **Materials**: a CPU-side `Material` table, mirrored into a per-frame `MaterialData` buffer.
+  It's an `Upload_Buffer` with `is_constant_buffer = false` — a StructuredBuffer, so elements
+  stay tightly packed (120 bytes, no 256-byte rounding) — and it binds as a **root SRV**
+  (`SetGraphicsRootShaderResourceView`), no descriptor involved. `num_frames_dirty` starts at
+  the ring depth and each frame's update decrements it, so an edit reaches all three frame
+  resources.
+- **`ModelVertex`** (pos/normal/uv/tangent, stride 44) replaces the per-vertex color, and the
+  shape/skull geometry builders move into shared code — mirroring the C++, which promotes
+  `BuildShapeGeometry`/`BuildSkullGeometry` into `d3dUtil` this chapter.
+- **No shader porting.** `BasicLit.hlsl` and `LightingUtil.hlsl` compile as-is. BasicLit is the
+  first shader with `#include`s — the default include handler you wired into `compile_shader`
+  back in ch 6 finally earns its keep. Top-level includes resolve against the working
+  directory, nested ones against the including file's folder: one more reason demos run from
+  the repo root.
+
+**Watch out:** the pass CB is no longer two matrices — it's the full 1552-byte struct with six
+view/proj variants (`linalg.inverse` is convention-agnostic and safe here), eye position,
+ambient color, and the light array. Zero it (`app.main_pass_cb = {}` = the C++ `ZeroMemory`)
+before filling, and set `num_dir_lights = 3` or `ComputeLighting`'s loops do nothing and
+everything renders ambient-only.
+
+**Reference port (LitShapes):** `odin_port/C8_LitShapes`
+(`odin run odin_port/C8_LitShapes -debug`, from the repo root).
+
+`common/shared_types.odin` holds the shared-header structs and their size asserts;
+`common/geometry_builders.odin` holds `Model_Vertex`, `Material`, and the two builders. The
+skull loader is the C++'s `fin >> token` istream loop re-spelled as
+`strings.fields_iterator` + `strconv` over the whole file — ~370k tokens, parses in
+milliseconds — with the tangents and spherical-projection UVs generated exactly as the C++
+does (the file only carries positions and normals).
+
+The lights rotate in `update`: `rotation_y(angle)` applied to the three base directions with
+`transform_normal` (w = 0 — a direction, not a point), then written into the pass CB's light
+array each frame.
+
+Correct looks like: the skull on the green box between the sphere-and-cylinder colonnade,
+wireframe defaulting **OFF** this time. The light-gray floor deliberately reads warm
+off-white, not gray — ambient (0.25, 0.25, 0.35) plus the warm (0.9, 0.8, 0.7) key light does
+that; don't go hunting a color bug. The specular highlights crawl across the spheres as the
+lights orbit (slowly — 0.1 rad/s; watch one for a few seconds).
+
+**Reference port (LitWaves):** `odin_port/C8_LitWaves`
+(`odin run odin_port/C8_LitWaves -debug`, from the repo root).
+
+`waves.odin` is byte-identical to ch 7's copy (the C++ duplicates `Waves.cpp` per demo too) —
+this chapter just finally *reads* the normals the simulation was already computing. The
+dynamic VB streams `Model_Vertex` now (position + sim normal, uv/tangent zeroed), the land
+keeps its analytic `get_hills_normal` — ported back in ch 7 as an unused leftover, now
+load-bearing — and materials replace ch 7's height-banded vertex colors. The
+borrowed-vertex-buffer trap from ch 7 is unchanged: teardown still nils `vertex_buffer_gpu`
+before destroying the water mesh.
+
+Correct looks like: uniformly green hills whose slopes shade dark-to-bright as they turn
+through the light (that's the analytic normal working), lakeBlue water with specular glints
+riding the moving ripples, and the three sliders still live. If the water is flat-shaded blue
+with no glints, your streamed vertices aren't carrying the sim's normals.
 
 ### Ch 9 — Texturing  *(Crate, TexturedShapes, TexWaves)*
 
@@ -837,11 +906,12 @@ there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struc
 | `d3d_math.odin` (row-vector matrix builders, grows: ch 3 → 5 → 11 → 20) | ch 3 | small | DirectXMath conventions |
 | `UploadBuffer` + `calc_cb_size` | ch 6 | small | book's Common |
 | Static-buffer upload helper | ch 6 | small | DirectXTK12 `CreateStaticBuffer` |
-| `shared_types.odin` (grow per chapter) | ch 6 | small | `SharedTypes.h` |
+| `shared_types.odin` (trimmed local structs ch 6–7; the full `#packed` mirror ch 8) | ch 6 | small | `SharedTypes.h` |
 | dxc `compile_shader` + shader table | ch 6 | small | `d3dUtil::CompileShader` + `ShaderLib` (bindings pre-exist) |
 | `mesh_gen.odin` (box/grid/sphere/geosphere/cylinder/quad) | ch 7 | medium | book's `MeshGen` |
 | Linear upload arena + `Frame_Resource` ring | ch 7 | medium | DirectXTK12 `GraphicsMemory` + book's Common |
 | `mem_track.odin` (Tracking_Allocator wiring) | ch 7 | tiny | CRT debug-heap leak check |
+| `geometry_builders.odin` (`ModelVertex`, `Material`, shape + skull builders) | ch 8 | small | `d3dUtil::BuildShapeGeometry`/`BuildSkullGeometry` |
 | **DDS parser** | ch 9 | **medium-large** | DirectXTK12 `DDSTextureLoader` — Odin's biggest gap |
 | Texture upload helper (mips → arrays → cubes → from-memory) | ch 9 (12, 18, 21) | medium | DirectXTK12 `ResourceUploadBatch` |
 | `matrix_reflect`/`matrix_shadow` | ch 11 | tiny | DirectXMath |

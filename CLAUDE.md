@@ -53,8 +53,9 @@ odin build odin_port/C7_Waves -debug -out:<scratchpad>/check.exe   # compile che
 1.6.2112 ahead of the Vulkan SDK's copy on PATH — never invoke a bare `dxc`. Copy steps are in
 `odin_port/README.md`.
 
-**Known-benign stderr:** two `id 1328` warnings per run (`CreateCommittedResource: Ignoring
-InitialState D3D12_RESOURCE_STATE_COPY_DEST`) from `create_static_buffer`. DirectXTK12 does the
+**Known-benign stderr:** one `id 1328` warning per `create_static_buffer` call
+(`CreateCommittedResource: Ignoring InitialState D3D12_RESOURCE_STATE_COPY_DEST`) — two per run
+for the ch 6–7 demos, three or four for ch 8's (extra geometry buffers). DirectXTK12 does the
 same thing and the C++ demos emit them too, invisibly — ours are only visible because
 InfoQueue1 pipes to stderr. Don't "fix" them.
 

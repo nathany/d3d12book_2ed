@@ -26,6 +26,8 @@ odin run odin_port/C6_Box -debug              # stderr validation log, COM leak 
 odin run odin_port/C6_BoxGrid -debug
 odin run odin_port/C7_Shapes -debug
 odin run odin_port/C7_Waves -debug
+odin run odin_port/C8_LitShapes -debug    # ch 8 on needs Models/skull.txt (in the repo)
+odin run odin_port/C8_LitWaves -debug
 ```
 
 **Run the windowed demos from the repo root** — shaders load by relative path
