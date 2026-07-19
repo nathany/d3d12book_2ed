@@ -59,6 +59,10 @@ D3D_App :: struct {
 	fence:         ^d3d12.IFence,
 	current_fence: u64,
 
+	// C++: mLinearAllocator (DirectXTK12 GraphicsMemory — see graphics_memory.odin).
+	// Lazy pages: demos that never allocate_constant pay only for its fence.
+	linear_allocator: Graphics_Memory,
+
 	command_queue:         ^d3d12.ICommandQueue,
 	direct_cmd_list_alloc: ^d3d12.ICommandAllocator,
 	command_list:          ^d3d12.IGraphicsCommandList6,
@@ -255,6 +259,9 @@ init_direct3d :: proc(app: ^D3D_App) {
 		app.device->CreateFence(0, {}, d3d12.IFence_UUID, ptr(&app.fence)),
 		"CreateFence",
 	)
+
+	// C++: mLinearAllocator = std::make_unique<GraphicsMemory>(md3dDevice.Get());
+	graphics_memory_init(&app.linear_allocator, app.device)
 
 	when ODIN_DEBUG {
 		log_adapters(app)
@@ -596,6 +603,8 @@ d3d_app_shutdown :: proc(app: ^D3D_App) {
 	if app.device != nil {
 		flush_command_queue(app)
 	}
+
+	graphics_memory_destroy(&app.linear_allocator) // queue flushed above; pages are idle
 
 	for &buffer in app.swap_chain_buffer {
 		if buffer != nil {buffer->Release();buffer = nil}

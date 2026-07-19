@@ -493,6 +493,29 @@ back to solid); five programmatic resizes with the projection recomputed through
 **Watch out:** fence bookkeeping — wait only when the frame-resource ring wraps. Off-by-one =
 flicker or hangs.
 
+**Ported (Shapes, 2026-07-18):** `odin_port/C7_Shapes`
+(`odin run odin_port/C7_Shapes -debug`, from the repo root). New common code:
+`mesh_gen.odin` (the full MeshGen — box/grid/sphere/geosphere/cylinder/quad + subdivide +
+`append_submesh`; `Mesh_Gen_Data` owns dynamic arrays, `mesh_gen_data_destroy` after
+upload) and `graphics_memory.odin` (**DirectXTK12 GraphicsMemory, reduced port with
+provenance header**: 64 KiB upload pages, `allocate_constant` at 256-byte alignment,
+`commit(queue)` fences this frame's pages and recycles retired ones,
+`get_statistics` feeds the ImGui GraphicsMemoryStatistics section — which exists in the
+port for the first time). The allocator lives on `D3D_App` as `linear_allocator`
+(C++ `mLinearAllocator`); pages are lazy so ch 4/6 demos pay only for its fence.
+Demo-side: `FrameResource` ring (per-frame allocator + pass CB + fence value — **Draw no
+longer flushes**; Update waits only when the ring wraps), render items in
+`[dynamic]^Render_Item` + per-layer lists (`[Render_Layer][dynamic]^Render_Item`), root
+**descriptors** (`SetGraphicsRootConstantBufferView`) instead of ch 6's tables, and the
+C++'s `unordered_map` shader/PSO/geometry tables as Odin maps — note map values aren't
+addressable, so `mGeometries` maps to `map[string]^Mesh_Geometry` with `new`/`free`.
+Verified: the book's shapes scene (wireframe default ON, per the header), stats panel
+live and stable (3 pages / 196 KiB total, one page in flight — the arena recycles rather
+than grows), orbit drag, five resizes, Escape → exit 0, debug layer silent, leak report
+silent. Verification-harness gotcha: `CW_USEDEFAULT` cascades per boot session — never
+hardcode the window origin for injected clicks; read `GetWindowRect` (DPI-aware) and map
+`physical = origin + 1.5 × window-relative-virtual` at 150% scale.
+
 ### Ch 8 — Lighting  *(LitShapes, LitWaves)*
 
 **New this chapter:** `Light`/`MaterialData` in `shared_types.odin` — the float3-next-to-scalar

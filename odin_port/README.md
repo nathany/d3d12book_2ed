@@ -21,6 +21,7 @@ odin run odin_port/APPENDIX_A
 odin run odin_port/C4_Init_Direct3D -debug    # -debug turns on the D3D12 debug layer,
 odin run odin_port/C6_Box -debug              # stderr validation log, and leak report
 odin run odin_port/C6_BoxGrid -debug
+odin run odin_port/C7_Shapes -debug
 ```
 
 **Run the windowed demos from the repo root** — shaders load by relative path
