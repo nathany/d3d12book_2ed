@@ -75,3 +75,11 @@ copy_data :: proc(ub: ^Upload_Buffer($T), element_index: int, data: T) {
 	data := data
 	mem.copy(&ub.mapped_data[element_index * int(ub.element_byte_size)], &data, size_of(T))
 }
+
+// C++: CopyData(const T* data, uint32_t count) — the contiguous-array overload for
+// dynamic vertex/index buffers. Only valid when elements are tightly packed (i.e. NOT a
+// constant buffer with its 256-byte stride) — same assert as the C++.
+copy_data_slice :: proc(ub: ^Upload_Buffer($T), data: []T) {
+	assert(ub.element_byte_size == size_of(T))
+	mem.copy(ub.mapped_data, raw_data(data), len(data) * size_of(T))
+}

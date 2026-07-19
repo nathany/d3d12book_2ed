@@ -516,6 +516,27 @@ silent. Verification-harness gotcha: `CW_USEDEFAULT` cascades per boot session �
 hardcode the window origin for injected clicks; read `GetWindowRect` (DPI-aware) and map
 `physical = origin + 1.5 × window-relative-virtual` at 150% scale.
 
+**Ported (Waves, 2026-07-19):** `odin_port/C7_Waves`
+(`odin run odin_port/C7_Waves -debug`, from the repo root). The wave sim (`waves.odin`)
+is the book's finite-difference scheme, ported verbatim except **deliberately serial**:
+the C++ wraps both interior loops in `concurrency::parallel_for` (PPL); the port keeps
+plain loops (user decision — multithreading waits until much later, no TSan on Windows;
+at 128×128 the serial update doesn't dent the frame time). New moving parts vs Shapes:
+`Upload_Buffer` gained the C++'s second CopyData overload as `copy_data_slice`
+(contiguous array, asserts not-a-CB); each FrameResource carries a `waves_vb`
+(`Upload_Buffer(Color_Vertex)`, 128×128 vertices) that update_waves refills from the
+solution each frame; the water `Mesh_Geometry.vertex_buffer_gpu` is re-pointed at the
+current frame's VB every frame. **Trap worth remembering:** that C++ line
+(`geo->VertexBufferGPU = currWavesVB->Resource()`) silently AddRefs through ComPtr — in
+Odin it's a plain borrow, so teardown must nil the field before `mesh_geometry_destroy`
+or it double-Releases a buffer the frame resource already released. Land geometry =
+MeshGen grid + hills height function + height-banded vertex colors; water indices are
+**R32_UINT** (128×128 > 0xffff). `MathHelper::Rand/RandF` map to `core:math/rand`'s
+`int_max` (mind the inclusive-range +1) and `float32_range`. Verified: animated ripples
+(two captures 1.2 s apart differ), hills color bands, the three wave sliders at C++
+defaults, five resizes, Escape → exit 0, debug layer silent, leak report silent (which
+specifically proves the borrowed-VB teardown is balanced). Chapter 7 complete.
+
 ### Ch 8 — Lighting  *(LitShapes, LitWaves)*
 
 **New this chapter:** `Light`/`MaterialData` in `shared_types.odin` — the float3-next-to-scalar
