@@ -25,26 +25,32 @@ Model_Vertex :: struct {
 #assert(size_of(Model_Vertex) == 44)
 
 // C++: struct Material (d3dUtil.h) — simple struct to represent a material for our demos.
-// Only the members the chapters so far read are ported; the bindless-texture and
-// ray-tracing fields arrive with their chapters.
+// Only the members the chapters so far read are ported; the ray-tracing fields arrive
+// with their chapters.
 Material :: struct {
 	// Unique material name for lookup.
-	name:             string,
+	name:                      string,
 
 	// Index into material buffer.
-	mat_index:        i32,
+	mat_index:                 i32,
+
+	// For bindless texturing (ch 9+): heap indices of this material's textures.
+	albedo_bindless_index:     i32,
+	normal_bindless_index:     i32,
+	gloss_height_ao_bindless_index: i32,
 
 	// Dirty flag indicating the material has changed and we need to update the buffer.
 	// Because we have a material buffer for each FrameResource, we have to apply the
 	// update to each FrameResource.  Thus, when we modify a material we should set
 	// num_frames_dirty = NUM_FRAME_RESOURCES so that each frame resource gets the update.
-	num_frames_dirty: i32,
+	num_frames_dirty:          i32,
 
 	// Material constant buffer data used for shading.
-	diffuse_albedo:   [4]f32,
-	fresnel_r0:       [3]f32,
-	roughness:        f32,
-	mat_transform:    d3d_math.Mat4,
+	diffuse_albedo:            [4]f32,
+	fresnel_r0:                [3]f32,
+	roughness:                 f32,
+	displacement_scale:        f32,
+	mat_transform:             d3d_math.Mat4,
 }
 
 // C++: d3dUtil::BuildShapeGeometry — box/grid/sphere/cylinder/quad concatenated into one

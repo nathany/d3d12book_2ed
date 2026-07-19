@@ -1,11 +1,11 @@
-// Partial port of `Common/DescriptorUtil.h/.cpp` (Frank Luna).
-//
-// Descriptor_Heap (RTV/DSV) and Cbv_Srv_Uav_Heap are ported; the book's SamplerHeap
-// arrives with the first demos that bind samplers. The C++ heaps are singletons — the
-// port passes them explicitly instead.
+// Port of `Common/DescriptorUtil.h/.cpp` (Frank Luna): Descriptor_Heap (RTV/DSV),
+// Cbv_Srv_Uav_Heap (the bindless free-index allocator), Sampler_Heap (ch 9+), and the
+// Create*View one-liners. The C++ heaps are singletons — the port passes them explicitly
+// instead (Sampler_Heap lives on D3D_App, matching where the C++ Init()s it).
 package common
 
 import d3d12 "vendor:directx/d3d12"
+import dxgi "vendor:directx/dxgi"
 
 // A descriptor heap plus the handle arithmetic the book wraps in CpuHandle(i)/GpuHandle(i):
 // heap_start + index * increment_size.
@@ -99,4 +99,101 @@ release_index :: proc(h: ^Cbv_Srv_Uav_Heap, index: u32) {
 	assert(index in h.used_indices, "releasing an index that was never handed out")
 	delete_key(&h.used_indices, index)
 	append(&h.free_indices, index)
+}
+
+// C++: SamplerHeap — applications usually only need a handful of samplers, so just
+// define them all up front in the sampler heap, and index them in shaders (the SAM_*
+// constants in shared_types.odin — the order below IS that contract).
+Sampler_Heap :: struct {
+	using base: Descriptor_Heap,
+}
+
+// C++: the InitSamplerDesc defaults; only what a slot overrides is spelled out below.
+@(private = "file")
+init_sampler_desc :: proc(
+	filter: d3d12.FILTER,
+	address_mode: d3d12.TEXTURE_ADDRESS_MODE,
+	max_anisotropy: u32 = 16,
+	// C++: D3D12_COMPARISON_FUNC_NONE (0) — the vendor enum omits it, so cast.
+	comparison_func := d3d12.COMPARISON_FUNC(0),
+) -> d3d12.SAMPLER_DESC {
+	return {
+		Filter = filter,
+		AddressU = address_mode,
+		AddressV = address_mode,
+		AddressW = address_mode,
+		MipLODBias = 0,
+		MaxAnisotropy = max_anisotropy,
+		ComparisonFunc = comparison_func,
+		BorderColor = {0, 0, 0, 0},
+		MinLOD = 0,
+		MaxLOD = d3d12.FLOAT32_MAX,
+	}
+}
+
+// C++: SamplerHeap::Init(device).
+sampler_heap_init :: proc(h: ^Sampler_Heap, device: ^d3d12.IDevice5) {
+	capacity :: 16 // C++: bump as needed
+
+	descriptor_heap_init(&h.base, device, .SAMPLER, capacity)
+
+	samplers := [?]d3d12.SAMPLER_DESC {
+		SAM_POINT_WRAP   = init_sampler_desc(.MIN_MAG_MIP_POINT, .WRAP),
+		SAM_POINT_CLAMP  = init_sampler_desc(.MIN_MAG_MIP_POINT, .CLAMP),
+		SAM_LINEAR_WRAP  = init_sampler_desc(.MIN_MAG_MIP_LINEAR, .WRAP),
+		SAM_LINEAR_CLAMP = init_sampler_desc(.MIN_MAG_MIP_LINEAR, .CLAMP),
+		SAM_ANISO_WRAP   = init_sampler_desc(.ANISOTROPIC, .WRAP, max_anisotropy = 8),
+		SAM_ANISO_CLAMP  = init_sampler_desc(.ANISOTROPIC, .CLAMP, max_anisotropy = 8),
+		SAM_SHADOW       = init_sampler_desc(
+			.COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
+			.BORDER,
+			comparison_func = .LESS_EQUAL,
+		),
+	}
+
+	for &desc, i in samplers {
+		device->CreateSampler(&desc, cpu_handle(&h.base, u32(i)))
+	}
+}
+
+// C++: CreateSrv2d (DescriptorUtil.h).
+create_srv_2d :: proc(
+	device: ^d3d12.IDevice5,
+	resource: ^d3d12.IResource,
+	format: dxgi.FORMAT,
+	mip_levels: u16,
+	h_descriptor: d3d12.CPU_DESCRIPTOR_HANDLE,
+) {
+	srv_desc := d3d12.SHADER_RESOURCE_VIEW_DESC {
+		Shader4ComponentMapping = d3d12.DEFAULT_SHADER_4_COMPONENT_MAPPING,
+		ViewDimension = .TEXTURE2D,
+		Format = format,
+	}
+	srv_desc.Texture2D = {
+		MostDetailedMip     = 0,
+		MipLevels           = u32(mip_levels),
+		ResourceMinLODClamp = 0.0,
+	}
+	device->CreateShaderResourceView(resource, &srv_desc, h_descriptor)
+}
+
+// C++: CreateSrvCube (DescriptorUtil.h).
+create_srv_cube :: proc(
+	device: ^d3d12.IDevice5,
+	resource: ^d3d12.IResource,
+	format: dxgi.FORMAT,
+	mip_levels: u16,
+	h_descriptor: d3d12.CPU_DESCRIPTOR_HANDLE,
+) {
+	srv_desc := d3d12.SHADER_RESOURCE_VIEW_DESC {
+		Shader4ComponentMapping = d3d12.DEFAULT_SHADER_4_COMPONENT_MAPPING,
+		ViewDimension = .TEXTURECUBE,
+		Format = format,
+	}
+	srv_desc.TextureCube = {
+		MostDetailedMip     = 0,
+		MipLevels           = u32(mip_levels),
+		ResourceMinLODClamp = 0.0,
+	}
+	device->CreateShaderResourceView(resource, &srv_desc, h_descriptor)
 }

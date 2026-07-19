@@ -54,10 +54,11 @@ odin build odin_port/C7_Waves -debug -out:<scratchpad>/check.exe   # compile che
 `odin_port/README.md`.
 
 **Known-benign stderr:** one `id 1328` warning per `create_static_buffer` call
-(`CreateCommittedResource: Ignoring InitialState D3D12_RESOURCE_STATE_COPY_DEST`) — two per run
-for the ch 6–7 demos, three or four for ch 8's (extra geometry buffers). DirectXTK12 does the
-same thing and the C++ demos emit them too, invisibly — ours are only visible because
-InfoQueue1 pipes to stderr. Don't "fix" them.
+(`CreateCommittedResource: Ignoring InitialState D3D12_RESOURCE_STATE_COPY_DEST`) — 2–5 per
+run depending on the demo's static-buffer count (ch 6–9 range). DDS texture uploads add none
+(textures really are created in COPY_DEST). DirectXTK12 does the same thing and the C++ demos
+emit them too, invisibly — ours are only visible because InfoQueue1 pipes to stderr. Don't
+"fix" them.
 
 ## Verifying a demo
 

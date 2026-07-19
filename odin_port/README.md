@@ -28,6 +28,9 @@ odin run odin_port/C7_Shapes -debug
 odin run odin_port/C7_Waves -debug
 odin run odin_port/C8_LitShapes -debug    # ch 8 on needs Models/skull.txt (in the repo)
 odin run odin_port/C8_LitWaves -debug
+odin run odin_port/C9_Crate -debug        # ch 9 on needs Textures/ (in the repo);
+odin run odin_port/C9_TexturedShapes -debug   # DDS loading via common/dds_loader.odin
+odin run odin_port/C9_TexWaves -debug
 ```
 
 **Run the windowed demos from the repo root** — shaders load by relative path

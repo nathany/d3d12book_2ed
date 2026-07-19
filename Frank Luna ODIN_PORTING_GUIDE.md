@@ -713,25 +713,65 @@ with no glints, your streamed vertices aren't carrying the sim's normals.
 
 ### Ch 9 — Texturing  *(Crate, TexturedShapes, TexWaves)*
 
-**Port first:**
+**Port first — the DDS loader**, the one genuinely missing piece in Odin: nothing in
+`core:`/`vendor:` reads DDS (stb_image doesn't either). It is less work than it sounds if you
+let two facts shrink it:
 
-- **DDS loader** — the biggest Odin-specific gap: nothing in `core:`/`vendor:` reads DDS
-  (stb_image doesn't either). Hand-roll: magic + `DDS_HEADER` + optional DX10 header + map the
-  handful of formats the book's ~60 textures use (BC1/BC3/BC5/BC7 + a few uncompressed), then
-  compute per-mip pitches. Reference implementation: DirectXTK12's `DDSTextureLoader.cpp`.
-  Budget 200–300 lines / an evening or two. (Check for a community Odin DDS package first —
-  the situation may have improved.)
-- **Texture upload helper** (replaces `ResourceUploadBatch`): `GetCopyableFootprints` → copy
-  into upload buffer respecting the **256-byte-aligned row pitch** (row by row, not one copy) →
-  `CopyTextureRegion` per subresource → barrier. DDS mips are pre-baked; no mip generation
-  anywhere in the book.
-- `TextureLib`/`MaterialLib` — name→resource maps (`map[string]^d3d12.IResource`); load only
-  what the chapter needs.
-- CBV/SRV/UAV heap in `DescriptorUtil`; static samplers array.
+- **Load only what the chapter needs.** The C++ TextureLib loads all ~55 book textures up
+  front, which would force you to speak every format on day one. The chapter-9 files are just
+  legacy-FourCC `DXT1`/`DXT5` (→ `BC1_UNORM`/`BC3_UNORM`) plus three 1×1 uncompressed
+  32-bit BGRA/BGRX defaults — no DX10 headers, no cubemaps yet. Map those, fail loudly on
+  anything else (print the header fields — future-you will thank you), and extend when a
+  later chapter's files demand it.
+- **`GetCopyableFootprints` does the layout math for you.** Create the texture, ask the
+  device for the per-subresource offsets and (256-byte-aligned) row pitches, copy the file's
+  tightly-packed rows into an upload buffer at those pitches — row by row, never one big
+  memcpy — then one `CopyTextureRegion` per subresource and a barrier. DDS mips are
+  pre-baked; nothing in the book generates mips.
 
-**Watch out:** the book's shaders index `ResourceDescriptorHeap[]` (SM 6.6 dynamic resources) —
-the shader-visible heap layout is the contract; keep indices identical to the book's or textures
-silently swap.
+Traps that cost real time: a `mip_map_count` of **0 means 1**; block-compressed pitch is
+`max(1, (w+3)/4) * block_size` with 8 bytes for BC1/BC4 and 16 for the rest; and the DDS
+file's subresource order (all mips of face 0, then face 1, …) happens to match D3D12's, so a
+single walk covers arrays and cubes when they arrive. Reference implementation: DirectXTK12's
+`DDSTextureLoader.cpp` for the format mapping, or the port's `common/dds_loader.odin` (~330
+lines including the upload).
+
+**Then the bindless plumbing**, which is the chapter's actual lesson:
+
+- Every texture gets a **bindless index** from the CbvSrvUav heap's free-list and an SRV at
+  that slot; MaterialLib snapshots the indices; the material buffer carries them; the pixel
+  shader does `ResourceDescriptorHeap[matData.DiffuseMapIndex]`. No per-texture root
+  bindings, this chapter or ever again. Order matters: textures load → heap assigns indices →
+  materials snapshot them.
+- A **sampler heap** (not static samplers — the 2nd ed's shaders use SM 6.6
+  `SamplerDescriptorHeap[]`) with seven fixed slots at the SAM_* indices from SharedTypes.h.
+  The slot order is a contract with every shader from here on.
+- Two new root-signature flags: `CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED` and
+  `SAMPLER_HEAP_DIRECTLY_INDEXED`. Forget them and the debug layer rejects your PSO with a
+  clear message; forget to bind the sampler heap in Draw and it rejects the draw.
+
+**Watch out:** the heap index IS the contract — a texture SRV created at the wrong slot
+doesn't error, it silently samples the wrong image. And `UpdateMaterialBuffer` uploads more
+now (MatTransform transposed + three indices); if the crate renders untextured-white, you're
+probably still uploading the ch 8 subset of `MaterialData`.
+
+**Reference port:** `odin_port/C9_Crate`, `odin_port/C9_TexturedShapes`,
+`odin_port/C9_TexWaves` (`odin run odin_port/C9_Crate -debug` etc., from the repo root).
+
+`common/dds_loader.odin` carries a provenance header (DirectXTK12-derived flow); TextureLib
+and MaterialLib live in common like the C++ singletons, but are passed explicitly and grow
+per chapter instead of loading the whole book's assets. The Sampler_Heap sits on `D3D_App`,
+initialized where the C++ initializes its singleton. TexWaves' `AnimateMaterials` is the
+first *runtime* material edit — it nudges the water's `MatTransform` translation row
+(`[3][0]`/`[3][1]` in row-major) and re-arms `num_frames_dirty` every frame, which exercises
+the dirty-propagation path the ring has carried since ch 8.
+
+Correct looks like: the crate crisp with its "Direct 3D" stamp (Crate); the ch 8 scene
+dressed in bricks, 8×8-tiled floor, and stone spheres (TexturedShapes); grass hills and
+water whose texture visibly *drifts* diagonally on top of the wave motion (TexWaves — if the
+water animates but the pattern never slides, AnimateMaterials isn't re-dirtying the
+material). Textures start life in COPY_DEST legitimately, so the id-1328 warning count stays
+at one per static *buffer* — texture uploads add none.
 
 ### Ch 10 — Blending  *(BlendDemo)*
 
@@ -912,8 +952,9 @@ there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struc
 | Linear upload arena + `Frame_Resource` ring | ch 7 | medium | DirectXTK12 `GraphicsMemory` + book's Common |
 | `mem_track.odin` (Tracking_Allocator wiring) | ch 7 | tiny | CRT debug-heap leak check |
 | `geometry_builders.odin` (`ModelVertex`, `Material`, shape + skull builders) | ch 8 | small | `d3dUtil::BuildShapeGeometry`/`BuildSkullGeometry` |
-| **DDS parser** | ch 9 | **medium-large** | DirectXTK12 `DDSTextureLoader` — Odin's biggest gap |
-| Texture upload helper (mips → arrays → cubes → from-memory) | ch 9 (12, 18, 21) | medium | DirectXTK12 `ResourceUploadBatch` |
+| `dds_loader.odin` (parse + footprint upload; grow formats per chapter) | ch 9 | medium (~330 lines) | DirectXTK12 `DDSTextureLoader` + texture half of `ResourceUploadBatch` — Odin's biggest gap |
+| `texture_lib.odin`/`material_lib.odin` + `Sampler_Heap` (grow per chapter) | ch 9 | small | book's `TextureLib`/`MaterialLib`/`SamplerHeap` singletons |
+| Texture upload extensions (arrays → from-memory) | ch 12, 18, 21, 25 | small each | DirectXTK12 `ResourceUploadBatch` |
 | `matrix_reflect`/`matrix_shadow` | ch 11 | tiny | DirectXMath |
 | `collision.odin` (AABB, frustum, ray tests) | ch 16–17 | small | DirectXCollision |
 | `affine_transformation` | ch 22 | tiny | DirectXMath |
@@ -938,8 +979,10 @@ and computes. With `Mat4 :: #row_major matrix[4,4]f32` the matrix side is byte-i
 `XMFLOAT4X4`, so even the transpose-on-upload line survives verbatim.
 
 **What you build yourself.** A **DDS loader** is the one genuinely missing piece — nothing in
-`core:` or `vendor:` reads DDS, so budget an evening or two of format parsing before ch 9. And
-the **D3D-convention matrix builders**, because `core:math/linalg`'s are GL-flavored
-column-vector: view, projection, and rotation come from your own `d3d_math.odin`, typed from
-the forms Luna prints, with linalg demoted to vectors, quaternions, and convention-agnostic
-operations. Neither gap is hidden or hard, and the inventory table above lists everything else.
+`core:` or `vendor:` reads DDS, so budget an evening of format parsing before ch 9 (less than
+it sounds: the ch 9 guide explains why, and the reference port's is ~330 lines, upload
+included). And the **D3D-convention matrix builders**, because `core:math/linalg`'s are
+GL-flavored column-vector: view, projection, and rotation come from your own `d3d_math.odin`,
+typed from the forms Luna prints, with linalg demoted to vectors, quaternions, and
+convention-agnostic operations. Neither gap is hidden or hard, and the inventory table above
+lists everything else.

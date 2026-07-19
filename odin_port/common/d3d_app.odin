@@ -75,6 +75,10 @@ D3D_App :: struct {
 	rtv_heap: Descriptor_Heap,
 	dsv_heap: Descriptor_Heap,
 
+	// C++: SamplerHeap singleton, Init'd in D3DApp::Initialize (ch 9+). All samplers the
+	// demos ever need, at the fixed SAM_* indices shaders use via SamplerDescriptorHeap[].
+	sampler_heap: Sampler_Heap,
+
 	screen_viewport: d3d12.VIEWPORT,
 	scissor_rect:    d3d12.RECT,
 
@@ -354,8 +358,8 @@ init_direct3d :: proc(app: ^D3D_App) {
 	descriptor_heap_init(&app.rtv_heap, app.device, .RTV, SWAP_CHAIN_BUFFER_COUNT)
 	descriptor_heap_init(&app.dsv_heap, app.device, .DSV, 1)
 
-	// (Deferred vs the C++: SamplerHeap, GraphicsMemory, ResourceUploadBatch — see the
-	// package docs. They arrive with the chapters that first use them.)
+	// C++: SamplerHeap::Get().Init(md3dDevice.Get());
+	sampler_heap_init(&app.sampler_heap, app.device)
 }
 
 // C++: FlushCommandQueue() — half the book's correctness hangs off this.
@@ -627,6 +631,7 @@ d3d_app_shutdown :: proc(app: ^D3D_App) {
 		if buffer != nil {buffer->Release();buffer = nil}
 	}
 	if app.depth_stencil_buffer != nil {app.depth_stencil_buffer->Release()}
+	descriptor_heap_destroy(&app.sampler_heap)
 	descriptor_heap_destroy(&app.rtv_heap)
 	descriptor_heap_destroy(&app.dsv_heap)
 	if app.command_list != nil {app.command_list->Release()}

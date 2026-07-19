@@ -18,6 +18,17 @@ package common
 
 import "../d3d_math"
 
+// C++: fixed indices in the sampler heap (SharedTypes.h SAM_* defines) — shaders index
+// SamplerDescriptorHeap[] with these, so the heap layout in descriptor_util.odin is the
+// contract.
+SAM_POINT_WRAP :: 0
+SAM_POINT_CLAMP :: 1
+SAM_LINEAR_WRAP :: 2
+SAM_LINEAR_CLAMP :: 3
+SAM_ANISO_WRAP :: 4
+SAM_ANISO_CLAMP :: 5
+SAM_SHADOW :: 6
+
 // C++: DEFINE_CBUFFER(PerObjectCB, b0).
 Per_Object_CB :: struct #packed {
 	world:              d3d_math.Mat4,
