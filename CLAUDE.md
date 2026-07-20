@@ -46,8 +46,12 @@ odin run odin_port/C7_Waves -debug    # -debug gates ODIN_DEBUG: D3D12 debug lay
                                       # InfoQueue1 -> stderr, COM leak report, and the
                                       # Odin tracking allocator
 odin test odin_port/C2_XMMATRIX       # ch 1-3 are math-only, ported as tests
+odin test odin_port/dds               # DDS parser tests (integration half needs repo root)
 odin build odin_port/C7_Waves -debug -out:<scratchpad>/check.exe   # compile check only
 ```
+
+`core:testing` here has **no `log`/`logf`/`errorf`** — use `testing.expectf(t, false, ...)`
+to fail with a message, and `core:log`'s `log.info`/`log.warnf` for test output.
 
 `dxcompiler.dll` and `dxil.dll` are copied to the repo root (gitignored) to pin vendor DXC
 1.6.2112 ahead of the Vulkan SDK's copy on PATH — never invoke a bare `dxc`. Copy steps are in

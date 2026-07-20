@@ -733,8 +733,14 @@ Traps that cost real time: a `mip_map_count` of **0 means 1**; block-compressed 
 `max(1, (w+3)/4) * block_size` with 8 bytes for BC1/BC4 and 16 for the rest; and the DDS
 file's subresource order (all mips of face 0, then face 1, …) happens to match D3D12's, so a
 single walk covers arrays and cubes when they arrive. Reference implementation: DirectXTK12's
-`DDSTextureLoader.cpp` for the format mapping, or the port's `common/dds_loader.odin` (~330
-lines including the upload).
+`DDSTextureLoader.cpp` and `LoaderHelpers.h`.
+
+**Split parsing from uploading**, the way DirectXTK12 does — `LoadDDSTexture*` describes the
+subresources, `CreateDDSTexture*` also uploads them. Worth going one step further than they
+do: keep the parser free of *any* D3D12 type (theirs still takes a device, because it creates
+the resource). A parser that needs no GPU and no assets is one you can unit-test, feed
+deliberately corrupt headers, and check against DirectXTK12 file by file — see
+`odin_port/dds/README.md` for how that validation was run.
 
 **Then the bindless plumbing**, which is the chapter's actual lesson:
 
@@ -758,7 +764,10 @@ probably still uploading the ch 8 subset of `MaterialData`.
 **Reference port:** `odin_port/C9_Crate`, `odin_port/C9_TexturedShapes`,
 `odin_port/C9_TexWaves` (`odin run odin_port/C9_Crate -debug` etc., from the repo root).
 
-`common/dds_loader.odin` carries a provenance header (DirectXTK12-derived flow); TextureLib
+The parser is its own package, `odin_port/dds` (`odin test odin_port/dds` — unit tests on
+synthetic headers, plus integration tests over every `.dds` in the repo); the D3D12 upload
+half is `common/texture_upload.odin`. Both carry provenance headers, since the flow and the
+format tables are DirectXTK12-derived. TextureLib
 and MaterialLib live in common like the C++ singletons, but are passed explicitly and grow
 per chapter instead of loading the whole book's assets. The Sampler_Heap sits on `D3D_App`,
 initialized where the C++ initializes its singleton. TexWaves' `AnimateMaterials` is the
@@ -952,7 +961,8 @@ there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struc
 | Linear upload arena + `Frame_Resource` ring | ch 7 | medium | DirectXTK12 `GraphicsMemory` + book's Common |
 | `mem_track.odin` (Tracking_Allocator wiring) | ch 7 | tiny | CRT debug-heap leak check |
 | `geometry_builders.odin` (`ModelVertex`, `Material`, shape + skull builders) | ch 8 | small | `d3dUtil::BuildShapeGeometry`/`BuildSkullGeometry` |
-| `dds_loader.odin` (parse + footprint upload; grow formats per chapter) | ch 9 | medium (~330 lines) | DirectXTK12 `DDSTextureLoader` + texture half of `ResourceUploadBatch` — Odin's biggest gap |
+| `dds` package (pure parser + tests; grow formats per chapter) | ch 9 | medium (~400 lines) | DirectXTK12 `DDSTextureLoader` "Load" half + `LoaderHelpers` — Odin's biggest gap |
+| `common/texture_upload.odin` (footprint upload) | ch 9 | small | DirectXTK12 `DDSTextureLoader` "Create" half + texture path of `ResourceUploadBatch` |
 | `texture_lib.odin`/`material_lib.odin` + `Sampler_Heap` (grow per chapter) | ch 9 | small | book's `TextureLib`/`MaterialLib`/`SamplerHeap` singletons |
 | Texture upload extensions (arrays → from-memory) | ch 12, 18, 21, 25 | small each | DirectXTK12 `ResourceUploadBatch` |
 | `matrix_reflect`/`matrix_shadow` | ch 11 | tiny | DirectXMath |

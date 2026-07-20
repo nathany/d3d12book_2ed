@@ -9,7 +9,9 @@ with DirectX 12* (2nd ed.). Chapter-by-chapter porting notes live in
 Directories mirror the book's `Demos/` folders (one Odin package per demo); files within a
 package mirror the demo's `.cpp` files. Shared code lives in its own packages: `common`
 (the book's `Common/` — app framework, timer, descriptor/upload helpers), `d3d_math`,
-`test_util`, and the vendored `libs/imgui`.
+[`dds`](dds/README.md) (a standalone DDS parser, no Direct3D — see its README for the
+supported-format matrix and how it's validated against DirectXTK12), `test_util`, and the
+vendored `libs/imgui`.
 
 ## Running
 
@@ -17,6 +19,9 @@ package mirror the demo's `.cpp` files. Shared code lives in its own packages: `
 odin test odin_port/C1_XMVECTOR       # chapters 1–3 are math-only, ported as tests that
 odin test odin_port/C2_XMMATRIX       # assert values captured from the C++ demos' output
 odin test odin_port/C3_TRANSFORMATIONS
+
+odin test odin_port/dds               # DDS parser: unit tests on synthetic headers +
+                                      # integration tests over every .dds in the repo
 
 odin run odin_port/APPENDIX_A
 odin run odin_port/C4_Init_Direct3D -debug    # -debug turns on the D3D12 debug layer,
