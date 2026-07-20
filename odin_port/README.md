@@ -9,9 +9,9 @@ with DirectX 12* (2nd ed.). Chapter-by-chapter porting notes live in
 Directories mirror the book's `Demos/` folders (one Odin package per demo); files within a
 package mirror the demo's `.cpp` files. Shared code lives in its own packages: `common`
 (the book's `Common/` — app framework, timer, descriptor/upload helpers), `d3d_math`,
-[`dds`](dds/README.md) (a standalone DDS parser, no Direct3D — see its README for the
-supported-format matrix and how it's validated against DirectXTK12), `test_util`, and the
-vendored `libs/imgui`.
+[`dds`](dds/README.md) (a standalone DDS parser — no graphics API at all, so it builds on
+Linux/macOS too; see its README for the supported-format matrix and how it's validated
+against DirectXTK12), `test_util`, and the vendored `libs/imgui`.
 
 ## Running
 

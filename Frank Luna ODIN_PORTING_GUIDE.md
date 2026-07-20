@@ -742,6 +742,14 @@ the resource). A parser that needs no GPU and no assets is one you can unit-test
 deliberately corrupt headers, and check against DirectXTK12 file by file — see
 `odin_port/dds/README.md` for how that validation was run.
 
+While you're at it, **don't let `dxgi.FORMAT` leak into the parser**.
+`vendor:directx/dxgi` link-depends on three Windows `.lib`s, so any package that touches it
+becomes Windows-only — and it *compiles* fine off-Windows, so you won't notice until
+something tries to link. Declare the format enum locally, *using DXGI's numbers*: that's not
+a concession to D3D but the file format's own vocabulary, since a DX10 header stores a raw
+`DXGI_FORMAT` integer. Then `dxgi.FORMAT(f)` is a cast rather than a table, and the parser
+stays something you could lift into another project unchanged.
+
 **Then the bindless plumbing**, which is the chapter's actual lesson:
 
 - Every texture gets a **bindless index** from the CbvSrvUav heap's free-list and an SRV at

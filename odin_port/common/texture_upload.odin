@@ -17,6 +17,7 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import d3d12 "vendor:directx/d3d12"
+import dxgi "vendor:directx/dxgi"
 import "../dds"
 
 // C++: DirectX::CreateDDSTextureFromFileEx(device, uploadBatch, filename, ...).
@@ -58,7 +59,11 @@ create_dds_texture :: proc(
 		Height = info.height,
 		DepthOrArraySize = u16(info.array_size),
 		MipLevels = u16(info.mip_levels),
-		Format = info.format,
+		// `dds.Format` is DXGI-numbered on purpose — the DDS DX10 header stores raw
+		// DXGI_FORMAT values — so this is a plain cast, not a lookup. The dds package
+		// deliberately doesn't import dxgi (it has to build on non-Windows), and
+		// dds/format_dxgi_test.odin asserts the two enums agree value for value.
+		Format = dxgi.FORMAT(info.format),
 		SampleDesc = {Count = 1, Quality = 0},
 		Layout = .UNKNOWN,
 		Flags = {},

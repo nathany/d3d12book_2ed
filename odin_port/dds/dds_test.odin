@@ -7,7 +7,6 @@ package dds
 
 import "core:mem"
 import "core:testing"
-import dxgi "vendor:directx/dxgi"
 
 // ---------------------------------------------------------------------------
 // Fixture builders
@@ -45,7 +44,7 @@ make_dds :: proc(
 @(private = "file")
 make_dds_dx10 :: proc(
 	width, height, mip_count: u32,
-	format: dxgi.FORMAT,
+	format: Format,
 	array_size: u32,
 	misc_flag: u32 = 0,
 	dimension: u32 = RESOURCE_DIMENSION_TEXTURE2D,
@@ -136,7 +135,7 @@ test_surface_info_bc3_and_bc7 :: proc(t: ^testing.T) {
 	// BC3 and BC7 are both 16 bytes per block. BC7 is the regression guard: an earlier
 	// draft omitted it from the block table, so it fell through to the 32-bpp path and
 	// computed an 8x-too-large pitch without erroring.
-	for format in ([?]dxgi.FORMAT{.BC3_UNORM, .BC7_UNORM}) {
+	for format in ([?]Format{.BC3_UNORM, .BC7_UNORM}) {
 		n, row, rows, ok := surface_info(16, 16, format)
 		testing.expectf(t, ok, "%v should be supported", format)
 		testing.expect_value(t, row, u32(64)) // 4 blocks * 16
@@ -174,15 +173,15 @@ test_surface_info_rejects_unknown :: proc(t: ^testing.T) {
 
 @(test)
 test_format_mapping_four_cc :: proc(t: ^testing.T) {
-	testing.expect_value(t, dxgi_format_from_pixel_format(pf_four_cc("DXT1")), dxgi.FORMAT.BC1_UNORM)
-	testing.expect_value(t, dxgi_format_from_pixel_format(pf_four_cc("DXT3")), dxgi.FORMAT.BC2_UNORM)
-	testing.expect_value(t, dxgi_format_from_pixel_format(pf_four_cc("DXT5")), dxgi.FORMAT.BC3_UNORM)
+	testing.expect_value(t, format_from_pixel_format(pf_four_cc("DXT1")), Format.BC1_UNORM)
+	testing.expect_value(t, format_from_pixel_format(pf_four_cc("DXT3")), Format.BC2_UNORM)
+	testing.expect_value(t, format_from_pixel_format(pf_four_cc("DXT5")), Format.BC3_UNORM)
 	// Pre-multiplied-alpha variants share the BC bits.
-	testing.expect_value(t, dxgi_format_from_pixel_format(pf_four_cc("DXT2")), dxgi.FORMAT.BC2_UNORM)
-	testing.expect_value(t, dxgi_format_from_pixel_format(pf_four_cc("DXT4")), dxgi.FORMAT.BC3_UNORM)
-	testing.expect_value(t, dxgi_format_from_pixel_format(pf_four_cc("ATI1")), dxgi.FORMAT.BC4_UNORM)
-	testing.expect_value(t, dxgi_format_from_pixel_format(pf_four_cc("ATI2")), dxgi.FORMAT.BC5_UNORM)
-	testing.expect_value(t, dxgi_format_from_pixel_format(pf_four_cc("ZZZZ")), dxgi.FORMAT.UNKNOWN)
+	testing.expect_value(t, format_from_pixel_format(pf_four_cc("DXT2")), Format.BC2_UNORM)
+	testing.expect_value(t, format_from_pixel_format(pf_four_cc("DXT4")), Format.BC3_UNORM)
+	testing.expect_value(t, format_from_pixel_format(pf_four_cc("ATI1")), Format.BC4_UNORM)
+	testing.expect_value(t, format_from_pixel_format(pf_four_cc("ATI2")), Format.BC5_UNORM)
+	testing.expect_value(t, format_from_pixel_format(pf_four_cc("ZZZZ")), Format.UNKNOWN)
 }
 
 @(test)
@@ -190,24 +189,24 @@ test_format_mapping_32bpp_masks :: proc(t: ^testing.T) {
 	// The three the book's files actually use — note R and B swap between the first two.
 	testing.expect_value(
 		t,
-		dxgi_format_from_pixel_format(pf_rgb32(0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000)),
-		dxgi.FORMAT.R8G8B8A8_UNORM,
+		format_from_pixel_format(pf_rgb32(0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000)),
+		Format.R8G8B8A8_UNORM,
 	)
 	testing.expect_value(
 		t,
-		dxgi_format_from_pixel_format(pf_rgb32(0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000)),
-		dxgi.FORMAT.B8G8R8A8_UNORM,
+		format_from_pixel_format(pf_rgb32(0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000)),
+		Format.B8G8R8A8_UNORM,
 	)
 	testing.expect_value(
 		t,
-		dxgi_format_from_pixel_format(pf_rgb32(0x00ff0000, 0x0000ff00, 0x000000ff, 0)),
-		dxgi.FORMAT.B8G8R8X8_UNORM,
+		format_from_pixel_format(pf_rgb32(0x00ff0000, 0x0000ff00, 0x000000ff, 0)),
+		Format.B8G8R8X8_UNORM,
 	)
 	// D3DFMT_X8B8G8R8 has no DXGI equivalent — must stay UNKNOWN, not fall back.
 	testing.expect_value(
 		t,
-		dxgi_format_from_pixel_format(pf_rgb32(0x000000ff, 0x0000ff00, 0x00ff0000, 0)),
-		dxgi.FORMAT.UNKNOWN,
+		format_from_pixel_format(pf_rgb32(0x000000ff, 0x0000ff00, 0x00ff0000, 0)),
+		Format.UNKNOWN,
 	)
 }
 
@@ -294,7 +293,7 @@ test_parse_dx10_array :: proc(t: ^testing.T) {
 	)
 	info, subs, err := parse(buf, context.temp_allocator)
 	testing.expect_value(t, err, Error.None)
-	testing.expect_value(t, info.format, dxgi.FORMAT.BC7_UNORM)
+	testing.expect_value(t, info.format, Format.BC7_UNORM)
 	testing.expect_value(t, info.array_size, u32(3))
 	testing.expect(t, !info.is_cube_map)
 	testing.expect_value(t, len(subs), 3)

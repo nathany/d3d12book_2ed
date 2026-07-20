@@ -53,6 +53,11 @@ odin build odin_port/C7_Waves -debug -out:<scratchpad>/check.exe   # compile che
 `core:testing` here has **no `log`/`logf`/`errorf`** — use `testing.expectf(t, false, ...)`
 to fail with a message, and `core:log`'s `log.info`/`log.warnf` for test output.
 
+**`odin_port/dds` must stay graphics-API-free** — it imports only `core:mem` so it builds
+for Linux/macOS/FreeBSD (`odin build odin_port/dds -target:linux_amd64 -build-mode:obj`).
+Never import `vendor:directx/*` there: dxgi link-depends on `system:dxgi.lib` and friends.
+The one exception is `format_dxgi_test.odin`, gated with `#+build windows`.
+
 `dxcompiler.dll` and `dxil.dll` are copied to the repo root (gitignored) to pin vendor DXC
 1.6.2112 ahead of the Vulkan SDK's copy on PATH — never invoke a bare `dxc`. Copy steps are in
 `odin_port/README.md`.

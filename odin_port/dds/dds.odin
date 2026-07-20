@@ -11,7 +11,6 @@
 package dds
 
 import "core:mem"
-import dxgi "vendor:directx/dxgi"
 
 // "DDS " little-endian.
 DDS_MAGIC :: u32(0x20534444)
@@ -22,7 +21,7 @@ Error :: enum {
 	Bad_Magic, //             missing the "DDS " signature
 	Bad_Header, //            header.size or ddspf.size wrong
 	Truncated_Dx10_Header, // FourCC said DX10 but the extended header isn't there
-	Unsupported_Format, //    no DXGI mapping (see README.md); info.pixel_format says what
+	Unsupported_Format, //    no format mapping (see README.md); info.pixel_format says what
 	Unsupported_Dimension, // 1D/3D/volume textures
 	Partial_Cube_Map, //      cubemap missing some of its six faces
 	Data_Truncated, //        header describes more surface bytes than the file holds
@@ -76,7 +75,7 @@ Texture_Info :: struct {
 	height:       u32,
 	mip_levels:   u32,
 	array_size:   u32,
-	format:       dxgi.FORMAT,
+	format:       Format,
 	is_cube_map:  bool,
 
 	// Byte offset of the first surface within the DDS buffer (128, or 148 with a DX10
@@ -144,7 +143,7 @@ parse_info :: proc(data: []byte) -> (info: Texture_Info, err: Error) {
 		mem.copy(&dx10, raw_data(data[info.data_offset:]), size_of(Header_Dxt10))
 		info.data_offset += size_of(Header_Dxt10)
 
-		info.format = dxgi.FORMAT(dx10.dxgi_format)
+		info.format = Format(dx10.dxgi_format)
 		info.array_size = max(u32(1), dx10.array_size)
 		if dx10.misc_flag & RESOURCE_MISC_TEXTURECUBE != 0 {
 			info.is_cube_map = true
@@ -154,7 +153,7 @@ parse_info :: proc(data: []byte) -> (info: Texture_Info, err: Error) {
 			return info, .Unsupported_Dimension
 		}
 	} else {
-		info.format = dxgi_format_from_pixel_format(header.ddspf)
+		info.format = format_from_pixel_format(header.ddspf)
 		if header.caps2 & DDS_CUBEMAP != 0 {
 			// We require all six faces, like DirectXTK12: D3D12 has no partial-cube
 			// resource to create.

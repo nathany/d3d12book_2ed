@@ -17,7 +17,6 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
-import dxgi "vendor:directx/dxgi"
 
 // The book's textures, relative to the repo root.
 @(private = "file")
@@ -115,7 +114,7 @@ test_all_book_textures_load :: proc(t: ^testing.T) {
 	}
 
 	acc: Checked
-	formats := make(map[dxgi.FORMAT]int, context.allocator)
+	formats := make(map[Format]int, context.allocator)
 	defer delete(formats)
 	cube_count := 0
 
@@ -181,7 +180,7 @@ test_foreign_dds_loads :: proc(t: ^testing.T) {
 	// A legacy (no DX10 header) BGRA cubemap with mip_map_count == 0 — three of the
 	// format's sharper corners in one file, and none of them appear together in the
 	// book's own assets.
-	testing.expect_value(t, info.format, dxgi.FORMAT.B8G8R8A8_UNORM)
+	testing.expect_value(t, info.format, Format.B8G8R8A8_UNORM)
 	testing.expect(t, info.is_cube_map)
 	testing.expect_value(t, info.array_size, u32(6))
 	testing.expect_value(t, info.mip_levels, u32(1))
@@ -196,7 +195,7 @@ test_known_book_files_have_expected_formats :: proc(t: ^testing.T) {
 	// legacy FourCC path, the DX10 path, and the three uncompressed mask variants.
 	Case :: struct {
 		path:        string,
-		format:      dxgi.FORMAT,
+		format:      Format,
 		width:       u32,
 		mips:        u32,
 		array_size:  u32,

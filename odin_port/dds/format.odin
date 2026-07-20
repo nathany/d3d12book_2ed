@@ -8,11 +8,10 @@
 // `.Unsupported_Format` — never a silent wrong answer.
 package dds
 
-import dxgi "vendor:directx/dxgi"
 
 // C++: LoaderHelpers::BitsPerPixel(fmt). Returns 0 for formats this port doesn't cover,
 // which `surface_info` reports as an error rather than guessing a stride.
-bits_per_pixel :: proc(format: dxgi.FORMAT) -> u32 {
+bits_per_pixel :: proc(format: Format) -> u32 {
 	#partial switch format {
 	case .R32G32B32A32_TYPELESS, .R32G32B32A32_FLOAT:
 		return 128
@@ -52,7 +51,7 @@ bits_per_pixel :: proc(format: dxgi.FORMAT) -> u32 {
 
 // C++: LoaderHelpers::IsCompressed(fmt) — the block-compressed formats, whose surfaces
 // are measured in 4x4 texel blocks rather than rows of pixels.
-is_compressed :: proc(format: dxgi.FORMAT) -> bool {
+is_compressed :: proc(format: Format) -> bool {
 	#partial switch format {
 	case .BC1_TYPELESS, .BC1_UNORM, .BC1_UNORM_SRGB,
 	     .BC2_TYPELESS, .BC2_UNORM, .BC2_UNORM_SRGB,
@@ -69,7 +68,7 @@ is_compressed :: proc(format: dxgi.FORMAT) -> bool {
 // Bytes per 4x4 block: 8 for the "half rate" formats, 16 for the rest. Only meaningful
 // when is_compressed(format).
 @(private)
-block_bytes :: proc(format: dxgi.FORMAT) -> u32 {
+block_bytes :: proc(format: Format) -> u32 {
 	#partial switch format {
 	case .BC1_TYPELESS, .BC1_UNORM, .BC1_UNORM_SRGB,
 	     .BC4_TYPELESS, .BC4_UNORM, .BC4_SNORM:
@@ -85,7 +84,7 @@ block_bytes :: proc(format: dxgi.FORMAT) -> u32 {
 // a 1x1 BC1 mip still occupies one full 8-byte block.
 surface_info :: proc(
 	width, height: u32,
-	format: dxgi.FORMAT,
+	format: Format,
 ) -> (
 	num_bytes, row_bytes, num_rows: u32,
 	ok: bool,
@@ -150,7 +149,7 @@ is_bit_mask :: proc "contextless" (pf: Pixel_Format, r, g, b, a: u32) -> bool {
 // C++: LoaderHelpers::GetDXGIFormat(ddpf) — the legacy (non-DX10-header) format mapping.
 // Returns .UNKNOWN for anything unmapped, including formats DirectXTK12 does handle; see
 // README.md for the diff and the rationale.
-dxgi_format_from_pixel_format :: proc(pf: Pixel_Format) -> dxgi.FORMAT {
+format_from_pixel_format :: proc(pf: Pixel_Format) -> Format {
 	if pf.flags & DDPF_RGB != 0 {
 		// Note that sRGB formats are written using the "DX10" extended header.
 		switch pf.rgb_bit_count {
