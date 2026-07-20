@@ -32,7 +32,26 @@ release and everything above is present.
 
 ### Matrices — the big one, read twice
 
-Odin differs from DirectXMath on *both* axes, and they interact:
+Start from what the **book** does, on both sides of the CPU/GPU boundary:
+
+| | CPU (DirectXMath → your Odin) | GPU (HLSL in this book) | Match? |
+|---|---|---|---|
+| Vector convention | row-vector (`v * M`) | row-vector (`mul(v, M)`) | ✅ |
+| Matrix storage | row-major | column-major (HLSL default) | ❌ |
+
+**The convention agrees; only the storage disagrees — and that is the entire reason the transpose
+exists.** `XMMatrixTranspose` before a constant-buffer write is a pure byte-layout fix; it has
+nothing to do with row-vector vs column-vector.
+
+Worth spelling out, because it's a common mix-up: HLSL has **no default vector convention**.
+`mul()` is a generic matrix multiply — `mul(v, M)` is 1×4 · 4×4 (row vector), `mul(M, v)` is
+4×4 · 4×1 (column vector), and both compile. Luna chose row-vector and the shaders use it
+uniformly (`mul(float4(vin.PosL, 1.0f), gWorld)`, `mul(posW, gViewProj)`, …); there is not a
+single `mul(matrix, vector)` in `Shaders/`. Column-major *storage*, by contrast, is a real HLSL
+default, and the book leaves it alone — no `row_major` keyword, no `#pragma pack_matrix`, and
+the `-Zpr`/`-Zpc` dxc flags sit commented out in `d3dUtil.h`.
+
+Odin then differs from DirectXMath on *both* axes, and they interact:
 
 - **Storage:** Odin's `matrix[4,4]f32` is **column-major** in memory (DirectXMath is row-major).
 - **Convention:** `core:math/linalg`'s builders (`matrix4_look_at`, `matrix4_perspective`,
