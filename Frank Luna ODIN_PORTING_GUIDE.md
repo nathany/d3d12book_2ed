@@ -913,6 +913,29 @@ render-target plumbing so far; nothing new in dependencies.
 - Hand-rolled `affine_transformation` (scale · rotation-about-origin · translation).
 - Keyframe animation helper — lerp/slerp between keys.
 
+**Watch out — quaternion multiply composes the *opposite* way from the book.** Two convention
+traps, and neither is the quaternion's fault — they're the same row-vector / column-convention
+mismatch the matrix layer already fights, now wearing a quaternion:
+
+- **Composition order flips.** Odin's built-in `q1 * q2` is raw Hamilton — it applies **q2
+  first, then q1** (right-to-left). DirectXMath deliberately *reversed* its
+  `XMQuaternionMultiply(a, b)` so quaternions read left-to-right (`a` then `b`) like its
+  row-vectors. So the book's `XMQuaternionMultiply(a, b)` ports to `b * a` in Odin — operands
+  swapped. Port it verbatim and you get the rotation backwards, silently. Wrap it in a helper
+  (`quat_concat :: proc(first, second) -> ... { return second * first }`) with a `// C++:` note
+  so call sites read in book order.
+- **`matrix4_from_quaternion` is transposed**, exactly like every other linalg builder — it emits
+  the column-vector / column-major form. `transmute` it to `Mat4` (same trick as the matrix
+  builders), or spell the conversion out from the book's formula.
+
+Both caveats are artifacts of porting a *row-vector* book onto Odin's *column-vector-native*
+stdlib — not defects. **Under a future column-vector/column-major engine they evaporate:** the
+built-in `*` already composes right-to-left, which is what column-vector matrices do too (last
+rotation on the left, for both), so the swap helper is gone; and `matrix4_from_quaternion`
+returns exactly the matrix you want, so the transmute is gone. (Projection depth range `[0,1]`
+vs linalg's GL `[-1,1]` is the one wrapper that survives the switch — but that's a camera issue,
+unrelated to quaternions.)
+
 ### Ch 23 — Character Animation  *(SkinnedMesh)*
 
 **New this chapter:**
