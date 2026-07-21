@@ -1046,3 +1046,96 @@ GL-flavored column-vector: view, projection, and rotation come from your own `d3
 typed from the forms Luna prints, with linalg demoted to vectors, quaternions, and
 convention-agnostic operations. Neither gap is hidden or hard, and the inventory table above
 lists everything else.
+
+## Things to learn next
+
+The book ends where a working renderer begins. What follows is weighted toward the *quiet*
+gaps — headline features advertise themselves, and you'll meet them in a blog post eventually.
+The danger is finishing all 27 chapters without ever learning that a cleaner way exists.
+
+A ✅ means `vendor:directx/d3d12` already binds it. None of this needs new bindings.
+
+### You could finish the book and never know these exist
+
+**Enhanced barriers.** The book uses legacy `ResourceBarrier` throughout — 134 calls, each
+packing pipeline stage, access, and memory layout into one `D3D12_RESOURCE_STATES` value.
+[Enhanced barriers](https://microsoft.github.io/DirectX-Specs/d3d/D3D12EnhancedBarriers.html)
+split those into three independent axes and delete the implicit state promotion/decay rules,
+which are the subtlest corner of the legacy model.
+✅ `IGraphicsCommandList7.Barrier`, `BARRIER_GROUP`, `TEXTURE_BARRIER`, `BARRIER_LAYOUT`.
+
+**Heaps and placed resources.** Every resource in the book is a *committed* resource — there is
+not a single `CreateHeap` in the tree.
+[Suballocation within heaps](https://learn.microsoft.com/en-us/windows/win32/direct3d12/suballocation-within-heaps)
+is how you get arena-style bulk allocate-and-free (one heap per level, reset on unload), and
+[D3D12MA](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator) is the industrial
+version for when per-object lifetimes outgrow that.
+✅ `CreateHeap`, `CreatePlacedResource`, `CreateReservedResource`.
+
+**Copy and compute queues.** The book never leaves a single `DIRECT` queue — even
+`ResourceUploadBatch->Begin()` is handed `D3D12_COMMAND_LIST_TYPE_DIRECT`.
+[Multi-engine synchronization](https://learn.microsoft.com/en-us/windows/win32/direct3d12/user-mode-heap-synchronization)
+is where the frame-resource fencing from ch 7 stops being boilerplate and starts earning its
+keep: uploads and async compute overlapping with graphics instead of serialized behind it. ✅
+
+**Residency, as management rather than readout.** Every demo polls `QueryVideoMemoryInfo` and
+prints Budget / CurrentUsage in its ImGui panel — but nothing ever *acts* on the numbers.
+[Residency](https://learn.microsoft.com/en-us/windows/win32/direct3d12/residency) is the other
+half: `MakeResident`/`Evict`, and deciding what to drop when you exceed budget. ✅
+
+**DRED.** No demo handles device-removed beyond failing. Device Removed Extended Data gives you
+GPU-side [breadcrumbs and page-fault data](https://learn.microsoft.com/en-us/windows/win32/direct3d12/use-dred)
+— which command actually died, and which address it touched. This is the answer to "GPU crashes
+are undebuggable," and it costs a few dozen lines.
+✅ `IDeviceRemovedExtendedDataSettings`, `AUTO_BREADCRUMB_NODE`.
+
+**GPU-based validation.** Already in the book's own source, one comment away — see
+`debugController1->SetEnableGPUBasedValidation(true);` in `Common/d3dApp.cpp`. It's slow, so
+it's dev-only, but it catches what the regular debug layer can't: notably out-of-bounds
+descriptor indexing, which the 2nd edition's bindless design makes genuinely reachable.
+[Docs](https://learn.microsoft.com/en-us/windows/win32/direct3d12/using-d3d12-debug-layer-gpu-based-validation).
+✅ `IDebug1`, `IDebug3`.
+
+### Worth knowing exist
+
+- **[Native 16-bit shader ops](https://github.com/microsoft/DirectXShaderCompiler/wiki/16-Bit-Scalar-Types)** —
+  real `float16_t`/`int16_t` in HLSL (SM6.2, `-enable-16bit-types`), as opposed to the old
+  `min16float` hints a driver could quietly ignore. Half the register pressure means better
+  occupancy, and some hardware runs packed 16-bit math at double rate. The natural uses are
+  post-processing and anything already stored small — blur, tonemapping, bloom, SSAO, normals,
+  colors — and the thing to keep at 32-bit is positions, depth, and long accumulations.
+  ✅ `OPTIONS4.Native16BitShaderOpsSupported`
+- **[Variable rate shading](https://microsoft.github.io/DirectX-Specs/d3d/VariableRateShading.html)** —
+  shade coarser than per-pixel. Largely mutually exclusive with upscalers, which need the clean
+  per-pixel history that VRS blocks destroy. ✅ `RSSetShadingRate`
+- **[Sampler feedback](https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html)** —
+  the GPU records which mips/tiles it actually sampled, so you stream in exactly those instead
+  of guessing. Pays off only when your textures don't all fit in VRAM. ✅ `SAMPLER_FEEDBACK`
+- **[GPU upload heaps](https://microsoft.github.io/DirectX-Specs/d3d/D3D12GPUUploadHeaps.html)
+  and [DirectStorage](https://github.com/microsoft/DirectStorage)** — two answers to "get bytes
+  to the GPU efficiently." Upload heaps let the CPU write straight into VRAM but need ReBAR
+  *and* Windows 11 *and* the user not having disabled ReBAR; DirectStorage does bulk NVMe→GPU
+  with GPU-side decompression. Prefer DirectStorage over hand-rolling upload heaps.
+  ✅ `HEAP_TYPE.GPU_UPLOAD` · ❌ DirectStorage ships as its own SDK and has no Odin bindings —
+  that's a set of bindings to write, not a blocker.
+- **[Work graphs](https://microsoft.github.io/DirectX-Specs/d3d/WorkGraphs.html)** — GPU-driven
+  work generation. Hardware support is still thin, and Odin binds only the `WORK_GRAPHS_TIER`
+  feature query, not the dispatch API — you'd be writing bindings first. ⚠️
+- **PSO caching and Advanced Shader Delivery** — shader-compilation stutter is the classic
+  shipping problem the book never hits, because it builds a handful of PSOs at startup while a
+  real game has thousands. `ID3D12PipelineLibrary` ✅ is the in-box answer; Advanced Shader
+  Delivery is Microsoft's in-progress one, distributing precompiled shaders via Steam/EGS.
+  Unshipped as of GDC 2026, and it arguably relocates the cost rather than removing it.
+
+GPU debugging is also improving quickly — `.dxdmp` crash dumps readable in PIX, a scriptable
+PIX API, an HLSL `DebugBreak()`, PIX markers propagating into drivers. All preview or announced
+rather than shipped, so treat it as a reason for optimism, not a plan.
+
+### Where to look things up
+
+- [Direct3D 12 programming guide](https://learn.microsoft.com/en-us/windows/win32/direct3d12/directx-12-programming-guide) — the reference baseline.
+- [DirectX-Specs](https://microsoft.github.io/DirectX-Specs/) — where features land *first*, and often the only real documentation for anything recent.
+- [D3D11.3 functional spec](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm) — still the best source on alignment and resource rules D3D12 inherited wholesale.
+- [DXC wiki](https://github.com/microsoft/DirectXShaderCompiler/wiki) and [hlsl-specs](https://github.com/microsoft/hlsl-specs) — shader model details and proposed language features.
+- [DirectX developer blog](https://devblogs.microsoft.com/directx/) — Agility SDK releases and tooling news.
+- Adam Sawicki's [state of GPU hardware](https://asawicki.info/articles/state_of_gpu_hardware_2025.php) for deciding minimum spec, [sources of DX12 documentation](https://asawicki.info/news_1794_all_sources_of_directx_12_documentation), and [GDC 2026 commentary](https://asawicki.info/news_1801_directx_12_news_from_gdc_2026_-_my_comments).
