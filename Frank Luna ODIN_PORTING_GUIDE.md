@@ -1130,15 +1130,12 @@ descriptor indexing, which the 2nd edition's bindless design makes genuinely rea
   [partial graphics programs](https://devblogs.microsoft.com/directx/partial-graphics-programs/)
   are the more interesting new one — compile the shared prerasterization and pixel-shader halves
   once into a collection, then late-link them against the varying state (blend, say) and
-  `SetProgram()` before the draw, so N variants stop costing N full compiles. Agility SDK
-  1.721-preview; AMD drivers only so far, though WARP supports it everywhere.
+  `SetProgram()` before the draw, so N variants stop costing N full compiles. That pays off in
+  development too, not just at ship: editing a pixel shader only invalidates its half, so a
+  hot reload rebuilds less.
   ⚠️ Odin binds the DXR-era `STATE_OBJECT_DESC` / `STATE_OBJECT_TYPE.COLLECTION` scaffolding but
   not the partial or generic program subobjects, and `SetProgram` lives on
   `IGraphicsCommandList10` where Odin stops at 7 — bindings to write first.
-  Advanced Shader Delivery is the storefront-side answer to the same problem, distributing
-  precompiled shaders through Steam/EGS. It needs platform cooperation rather than code you
-  write, so it's less actionable at indie scale — and it relocates the compile cost to download
-  time rather than removing it.
 
 GPU debugging is also improving quickly — `.dxdmp` crash dumps readable in PIX, a scriptable
 PIX API, an HLSL `DebugBreak()`, PIX markers propagating into drivers. All preview or announced
