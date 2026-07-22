@@ -1124,11 +1124,21 @@ descriptor indexing, which the 2nd edition's bindless design makes genuinely rea
 - **[Work graphs](https://microsoft.github.io/DirectX-Specs/d3d/WorkGraphs.html)** — GPU-driven
   work generation. Hardware support is still thin, and Odin binds only the `WORK_GRAPHS_TIER`
   feature query, not the dispatch API — you'd be writing bindings first. ⚠️
-- **PSO caching and Advanced Shader Delivery** — shader-compilation stutter is the classic
+- **PSO caching and partial graphics programs** — shader-compilation stutter is the classic
   shipping problem the book never hits, because it builds a handful of PSOs at startup while a
-  real game has thousands. `ID3D12PipelineLibrary` ✅ is the in-box answer; Advanced Shader
-  Delivery is Microsoft's in-progress one, distributing precompiled shaders via Steam/EGS.
-  Unshipped as of GDC 2026, and it arguably relocates the cost rather than removing it.
+  real game has thousands. `ID3D12PipelineLibrary` ✅ is the in-box answer today;
+  [partial graphics programs](https://devblogs.microsoft.com/directx/partial-graphics-programs/)
+  are the more interesting new one — compile the shared prerasterization and pixel-shader halves
+  once into a collection, then late-link them against the varying state (blend, say) and
+  `SetProgram()` before the draw, so N variants stop costing N full compiles. Agility SDK
+  1.721-preview; AMD drivers only so far, though WARP supports it everywhere.
+  ⚠️ Odin binds the DXR-era `STATE_OBJECT_DESC` / `STATE_OBJECT_TYPE.COLLECTION` scaffolding but
+  not the partial or generic program subobjects, and `SetProgram` lives on
+  `IGraphicsCommandList10` where Odin stops at 7 — bindings to write first.
+  Advanced Shader Delivery is the storefront-side answer to the same problem, distributing
+  precompiled shaders through Steam/EGS. It needs platform cooperation rather than code you
+  write, so it's less actionable at indie scale — and it relocates the compile cost to download
+  time rather than removing it.
 
 GPU debugging is also improving quickly — `.dxdmp` crash dumps readable in PIX, a scriptable
 PIX API, an HLSL `DebugBreak()`, PIX markers propagating into drivers. All preview or announced
