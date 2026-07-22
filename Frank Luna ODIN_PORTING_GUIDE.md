@@ -1110,7 +1110,10 @@ descriptor indexing, which the 2nd edition's bindless design makes genuinely rea
   per-pixel history that VRS blocks destroy. ✅ `RSSetShadingRate`
 - **[Sampler feedback](https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html)** —
   the GPU records which mips/tiles it actually sampled, so you stream in exactly those instead
-  of guessing. Pays off only when your textures don't all fit in VRAM. ✅ `SAMPLER_FEEDBACK`
+  of guessing. Pays off only when your textures don't all fit in VRAM — and even then, Sawicki's
+  read is that most games should skip the *hardware* feature: working out the wanted mip yourself
+  in a shader matches your own streaming granularity exactly and doesn't narrow your minimum spec.
+  Worth understanding as a technique; optional as a DX12 feature. ✅ `SAMPLER_FEEDBACK`
 - **[GPU upload heaps](https://microsoft.github.io/DirectX-Specs/d3d/D3D12GPUUploadHeaps.html)
   and [DirectStorage](https://github.com/microsoft/DirectStorage)** — two answers to "get bytes
   to the GPU efficiently." Upload heaps let the CPU write straight into VRAM but need ReBAR
