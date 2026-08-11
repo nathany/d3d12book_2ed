@@ -68,8 +68,12 @@ material_lib_add :: proc(
 	)
 }
 
-// C++: MaterialLib::Init(device) — the table, trimmed to chapters ≤ 12.
+// C++: MaterialLib::Init(device) — the table, trimmed to chapters ≤ 14.
 material_lib_init :: proc(lib: ^Material_Lib, tex_lib: ^Texture_Lib) {
+	add_material(lib, tex_lib, "whiteMat",
+		"defaultDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",
+		{1.0, 1.0, 1.0, 1.0}, {0.1, 0.1, 0.1}, 0.5)
+
 	add_material(lib, tex_lib, "crate",
 		"crateDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",
 		{1.0, 1.0, 1.0, 1.0}, {0.1, 0.1, 0.1}, 0.3)
