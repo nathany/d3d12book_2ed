@@ -177,6 +177,25 @@ create_srv_2d :: proc(
 	device->CreateShaderResourceView(resource, &srv_desc, h_descriptor)
 }
 
+// C++: CreateUav2d (DescriptorUtil.h).
+create_uav_2d :: proc(
+	device: ^d3d12.IDevice5,
+	resource: ^d3d12.IResource,
+	format: dxgi.FORMAT,
+	mip_slice: u32,
+	h_descriptor: d3d12.CPU_DESCRIPTOR_HANDLE,
+) {
+	desc := d3d12.UNORDERED_ACCESS_VIEW_DESC {
+		Format = format,
+		ViewDimension = .TEXTURE2D,
+	}
+	desc.Texture2D = {
+		MipSlice = mip_slice,
+		PlaneSlice = 0,
+	}
+	device->CreateUnorderedAccessView(resource, nil, &desc, h_descriptor)
+}
+
 // C++: CreateSrv2dArray (DescriptorUtil.h).
 create_srv_2d_array :: proc(
 	device: ^d3d12.IDevice5,
@@ -221,4 +240,49 @@ create_srv_cube :: proc(
 		ResourceMinLODClamp = 0.0,
 	}
 	device->CreateShaderResourceView(resource, &srv_desc, h_descriptor)
+}
+
+// C++: CreateBufferSrv — structured-buffer SRV.
+create_buffer_srv :: proc(
+	device: ^d3d12.IDevice5,
+	first_element: u64,
+	element_count, element_byte_size: u32,
+	resource: ^d3d12.IResource,
+	h_descriptor: d3d12.CPU_DESCRIPTOR_HANDLE,
+) {
+	desc := d3d12.SHADER_RESOURCE_VIEW_DESC {
+		Format = .UNKNOWN,
+		ViewDimension = .BUFFER,
+		Shader4ComponentMapping = d3d12.DEFAULT_SHADER_4_COMPONENT_MAPPING,
+	}
+	desc.Buffer = {
+		FirstElement = first_element,
+		NumElements = element_count,
+		StructureByteStride = element_byte_size,
+		Flags = {},
+	}
+	device->CreateShaderResourceView(resource, &desc, h_descriptor)
+}
+
+// C++: CreateBufferUav — structured-buffer UAV with an optional counter resource.
+create_buffer_uav :: proc(
+	device: ^d3d12.IDevice5,
+	first_element: u64,
+	element_count, element_byte_size: u32,
+	counter_offset: u64,
+	resource, counter_resource: ^d3d12.IResource,
+	h_descriptor: d3d12.CPU_DESCRIPTOR_HANDLE,
+) {
+	desc := d3d12.UNORDERED_ACCESS_VIEW_DESC {
+		Format = .UNKNOWN,
+		ViewDimension = .BUFFER,
+	}
+	desc.Buffer = {
+		FirstElement = first_element,
+		NumElements = element_count,
+		StructureByteStride = element_byte_size,
+		CounterOffsetInBytes = counter_offset,
+		Flags = {},
+	}
+	device->CreateUnorderedAccessView(resource, counter_resource, &desc, h_descriptor)
 }

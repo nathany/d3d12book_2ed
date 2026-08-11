@@ -50,6 +50,14 @@ transition_barrier :: proc(
 	return barrier
 }
 
+// C++: CD3DX12_RESOURCE_BARRIER::UAV. Orders unordered-access reads/writes without
+// changing the resource state.
+uav_barrier :: proc(resource: ^d3d12.IResource) -> d3d12.RESOURCE_BARRIER {
+	barrier := d3d12.RESOURCE_BARRIER{Type = .UAV}
+	barrier.UAV = {pResource = resource}
+	return barrier
+}
+
 // Convenience for COM out-params: `ptr(&obj)` in place of C++ IID_PPV_ARGS's second half.
 ptr :: proc(p: ^^$T) -> ^rawptr {
 	return (^rawptr)(p)

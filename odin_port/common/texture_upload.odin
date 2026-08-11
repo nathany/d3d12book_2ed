@@ -172,6 +172,78 @@ create_dds_texture :: proc(
 	return texture, info.is_cube_map
 }
 
+// C++: CreateTextureFromMemory for one uncompressed 2D subresource. Chapter 13 uses
+// this to seed the three R32_FLOAT wave-simulation textures with zeroes.
+create_texture_2d_from_memory :: proc(
+	batch: ^Resource_Upload_Batch,
+	width, height: u32,
+	format: dxgi.FORMAT,
+	data: rawptr,
+	row_pitch: u32,
+	after_state: d3d12.RESOURCE_STATES,
+	flags: d3d12.RESOURCE_FLAGS = {},
+) -> ^d3d12.IResource {
+	desc := d3d12.RESOURCE_DESC {
+		Dimension = .TEXTURE2D,
+		Width = u64(width),
+		Height = height,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		Format = format,
+		SampleDesc = {Count = 1},
+		Layout = .UNKNOWN,
+		Flags = flags,
+	}
+	default_heap := d3d12.HEAP_PROPERTIES{Type = .DEFAULT}
+	texture: ^d3d12.IResource
+	hr_panic(
+		batch.device->CreateCommittedResource(
+			&default_heap, {}, &desc, {.COPY_DEST}, nil,
+			d3d12.IResource_UUID, ptr(&texture),
+		),
+		"CreateCommittedResource(texture from memory)",
+	)
+
+	layout: d3d12.PLACED_SUBRESOURCE_FOOTPRINT
+	num_rows: u32
+	row_size: u64
+	total_bytes: u64
+	batch.device->GetCopyableFootprints(
+		&desc, 0, 1, 0, &layout, &num_rows, &row_size, &total_bytes,
+	)
+	assert(row_size == u64(row_pitch))
+	assert(num_rows == height)
+
+	upload_desc := buffer_desc(total_bytes)
+	upload_heap := d3d12.HEAP_PROPERTIES{Type = .UPLOAD}
+	upload: ^d3d12.IResource
+	hr_panic(
+		batch.device->CreateCommittedResource(
+			&upload_heap, {}, &upload_desc, d3d12.RESOURCE_STATE_GENERIC_READ, nil,
+			d3d12.IResource_UUID, ptr(&upload),
+		),
+		"CreateCommittedResource(texture upload)",
+	)
+	mapped: rawptr
+	hr_panic(upload->Map(0, nil, &mapped), "Map(texture upload)")
+	for row in 0 ..< int(height) {
+		dst := rawptr(uintptr(mapped) + uintptr(row * int(layout.Footprint.RowPitch)))
+		src := rawptr(uintptr(data) + uintptr(row * int(row_pitch)))
+		mem.copy(dst, src, int(row_pitch))
+	}
+	upload->Unmap(0, nil)
+	append(&batch.tracked, upload)
+
+	dst_loc := d3d12.TEXTURE_COPY_LOCATION{pResource = texture, Type = .SUBRESOURCE_INDEX}
+	dst_loc.SubresourceIndex = 0
+	src_loc := d3d12.TEXTURE_COPY_LOCATION{pResource = upload, Type = .PLACED_FOOTPRINT}
+	src_loc.PlacedFootprint = layout
+	batch.cmd_list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, nil)
+	barrier := transition_barrier(texture, {.COPY_DEST}, after_state)
+	batch.cmd_list->ResourceBarrier(1, &barrier)
+	return texture
+}
+
 // Turn a parser error into something actionable — for an unmapped format that means
 // printing the header fields, so the reader knows exactly what to add to
 // `dds/format.odin` (and `dds/README.md` says which ones are deliberately absent).

@@ -147,8 +147,35 @@ Material_Data :: struct #packed {
 	index_of_refraction:       f32,
 }
 
+// C++/HLSL: DEFINE_CBUFFER(GpuWavesCB, b0).
+Gpu_Waves_CB :: struct #packed {
+	wave_constant0: f32,
+	wave_constant1: f32,
+	wave_constant2: f32,
+	disturb_mag:     f32,
+
+	disturb_index:   [2]u32,
+	grid_size:       [2]u32,
+
+	prev_sol_index:  u32,
+	curr_sol_index:  u32,
+	output_index:    u32,
+	_pad0:           u32,
+}
+
+// C++/HLSL: DEFINE_CBUFFER(BlurDispatchCB, b0).
+Blur_Dispatch_CB :: struct #packed {
+	weight_vec:       [8][4]f32,
+	blur_radius:      i32,
+	blur_input_index: u32,
+	blur_output_index: u32,
+	_pad0:            u32,
+}
+
 // Layout locks — sizes computed from the HLSL packing rules the C++ header encodes.
 #assert(size_of(Per_Object_CB) == 192)
 #assert(size_of(Light) == 48)
 #assert(size_of(Per_Pass_CB) == 784 + MAX_LIGHTS * size_of(Light)) // 1552
 #assert(size_of(Material_Data) == 120)
+#assert(size_of(Gpu_Waves_CB) == 48)
+#assert(size_of(Blur_Dispatch_CB) == 144)
