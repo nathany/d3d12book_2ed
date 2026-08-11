@@ -25,7 +25,7 @@ Texture_Lib :: struct {
 }
 
 // C++: TextureLib::Init(device, uploadBatch) — name/filename table order preserved,
-// trimmed to chapters ≤ 10.
+// trimmed to chapters ≤ 11.
 texture_lib_init :: proc(lib: ^Texture_Lib, upload_batch: ^Resource_Upload_Batch) {
 	Entry :: struct {
 		name, filename: string,
@@ -41,6 +41,8 @@ texture_lib_init :: proc(lib: ^Texture_Lib, upload_batch: ^Resource_Upload_Batch
 		{"bricksGlossHeightAoMap", "Textures/bricks0_gloss_height_ao.dds"},
 
 		{"tileDiffuseMap", "Textures/tile0.dds"},
+		{"checkboardMap", "Textures/checkboard.dds"},
+		{"iceMap", "Textures/ice.dds"},
 
 		{"rock_color", "Textures/terrain/rock0_color.dds"},
 		{"rock_normal", "Textures/terrain/rock0_normal.dds"},

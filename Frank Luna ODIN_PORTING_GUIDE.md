@@ -836,6 +836,19 @@ the debug/leak reports should contain no new warnings or live objects.
 - Hand-roll `matrix_reflect(plane)` / `matrix_shadow(plane, light)` into `d3d_math.odin` —
   the chapter derives both. Keep them in the row-vector form you standardized on.
 
+**Reference port:** `odin_port/C11_Stenciling`
+(`odin run odin_port/C11_Stenciling -debug`, from the repo root).
+
+The frame resource now carries two pass constants: the normal pass and a reflected-light
+copy. The mirror first writes stencil without touching the color or depth buffers; the
+reflected skull then draws only where stencil equals one, followed by the transparent ice
+surface and the projected shadow. `A`/`D`/`W`/`S` move the skull and update all three world
+matrices every frame.
+
+Correct looks like: a skull on the checkered floor, its reflection visible only through
+the ice mirror, and a translucent black shadow lying on the floor without dark overlap.
+Moving the skull must move the original, reflection, and shadow together.
+
 ### Ch 12 — The Geometry Shader  *(BillboardsGS)*
 
 **New this chapter:** GS stage in the PSO; a texture2DArray DDS — your DDS loader + upload

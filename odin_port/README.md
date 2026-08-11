@@ -37,6 +37,7 @@ odin run odin_port/C9_Crate -debug        # ch 9 on needs Textures/ (in the repo
 odin run odin_port/C9_TexturedShapes -debug   # DDS loading via common/dds_loader.odin
 odin run odin_port/C9_TexWaves -debug
 odin run odin_port/C10_BlendDemo -debug
+odin run odin_port/C11_Stenciling -debug
 ```
 
 **Run the windowed demos from the repo root** — shaders load by relative path

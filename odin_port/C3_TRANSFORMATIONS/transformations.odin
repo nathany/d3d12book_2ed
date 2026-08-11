@@ -97,3 +97,23 @@ roll_pitch_yaw :: proc(t: ^testing.T) {
 	q := dm.transform_coord([3]f32{1, 1, 1}, rpy)
 	tu.expect_close(t, q, [3]f32{0.53676397, 0.98921961, 1.3165594}, 1e-6)
 }
+
+// Chapter 11 additions: reflection across z=5 and projection onto y=0.
+@(test)
+reflection_and_shadow :: proc(t: ^testing.T) {
+	reflection := dm.matrix_reflect({0, 0, 1, -5})
+	tu.expect_close(
+		t,
+		dm.transform_coord({1, 2, 7}, reflection),
+		[3]f32{1, 2, 3},
+		1e-6,
+	)
+
+	shadow := dm.matrix_shadow({0, 1, 0, 0}, {0, 1, 0, 0})
+	tu.expect_close(
+		t,
+		dm.transform_coord({2, 5, -3}, shadow),
+		[3]f32{2, 0, -3},
+		1e-6,
+	)
+}

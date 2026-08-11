@@ -49,7 +49,26 @@ add_material :: proc(
 	lib.next_mat_index += 1
 }
 
-// C++: MaterialLib::Init(device) — the table, trimmed to chapters ≤ 10.
+// C++: MaterialLib::AddMaterial — used for materials local to one demo.
+material_lib_add :: proc(
+	lib: ^Material_Lib,
+	tex_lib: ^Texture_Lib,
+	name: string,
+	albedo_map: string,
+	normal_map: string,
+	gloss_height_ao_map: string,
+	diffuse: [4]f32,
+	fresnel: [3]f32,
+	roughness: f32,
+	displacement_scale: f32 = 1.0,
+) {
+	add_material(
+		lib, tex_lib, name, albedo_map, normal_map, gloss_height_ao_map,
+		diffuse, fresnel, roughness, displacement_scale,
+	)
+}
+
+// C++: MaterialLib::Init(device) — the table, trimmed to chapters ≤ 11.
 material_lib_init :: proc(lib: ^Material_Lib, tex_lib: ^Texture_Lib) {
 	add_material(lib, tex_lib, "crate",
 		"crateDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",

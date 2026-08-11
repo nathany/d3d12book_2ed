@@ -140,3 +140,32 @@ perspective_fov_lh :: proc(fov_y, aspect, near_z, far_z: f32) -> Mat4 {
 		0, 0, -range * near_z, 0,
 	}
 }
+
+// C++: XMMatrixReflect(plane). The plane is (a,b,c,d), ax+by+cz+d=0.
+matrix_reflect :: proc(plane: Vec4) -> Mat4 {
+	inv_len := 1 / linalg.length(plane.xyz)
+	p := plane * inv_len
+	a, b, c, d := p.x, p.y, p.z, p.w
+	return Mat4{
+		1-2*a*a, -2*a*b,   -2*a*c,   0,
+		-2*a*b,  1-2*b*b,  -2*b*c,   0,
+		-2*a*c,  -2*b*c,   1-2*c*c,  0,
+		-2*a*d,  -2*b*d,   -2*c*d,   1,
+	}
+}
+
+// C++: XMMatrixShadow(plane, light). Row-vector form:
+// dot(plane, light) * I - outer(plane, light).
+matrix_shadow :: proc(plane, light: Vec4) -> Mat4 {
+	inv_len := 1 / linalg.length(plane.xyz)
+	p := plane * inv_len
+	dot := linalg.dot(p, light)
+	a, b, c, d := p.x, p.y, p.z, p.w
+	x, y, z, w := light.x, light.y, light.z, light.w
+	return Mat4{
+		dot-a*x, -a*y,     -a*z,     -a*w,
+		-b*x,    dot-b*y,  -b*z,     -b*w,
+		-c*x,    -c*y,     dot-c*z,  -c*w,
+		-d*x,    -d*y,     -d*z,     dot-d*w,
+	}
+}
