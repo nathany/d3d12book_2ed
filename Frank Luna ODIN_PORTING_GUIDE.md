@@ -855,6 +855,18 @@ Moving the skull must move the original, reflection, and shadow together.
 helper must handle `array_size * mip_levels` subresources. Extend them now if you cut that
 corner.
 
+**Reference port:** `odin_port/C12_BillboardsGS`
+(`odin run odin_port/C12_BillboardsGS -debug`, from the repo root).
+
+The demo adds a two-element point input layout (world position and size), compiles the
+`gs_6_6` entry from `TreeSprite.hlsl`, and swaps the PSO topology type to POINT. The shared
+descriptor helper now creates Texture2DArray SRVs so the pixel shader can select among the
+three tree slices using `SV_PrimitiveID`.
+
+Correct looks like: a dense mix of three tree species across the hills, with every sprite
+remaining upright and turning to face the camera. Their transparent backgrounds must be
+clipped cleanly, including in the normal (non-wireframe) PSO.
+
 ### Ch 13 — The Compute Shader  *(VecAddCS, Blur, WavesCS)*
 
 **New this chapter:**

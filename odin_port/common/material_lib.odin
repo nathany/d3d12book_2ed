@@ -68,7 +68,7 @@ material_lib_add :: proc(
 	)
 }
 
-// C++: MaterialLib::Init(device) — the table, trimmed to chapters ≤ 11.
+// C++: MaterialLib::Init(device) — the table, trimmed to chapters ≤ 12.
 material_lib_init :: proc(lib: ^Material_Lib, tex_lib: ^Texture_Lib) {
 	add_material(lib, tex_lib, "crate",
 		"crateDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",
@@ -101,6 +101,10 @@ material_lib_init :: proc(lib: ^Material_Lib, tex_lib: ^Texture_Lib) {
 	add_material(lib, tex_lib, "skullMat",
 		"defaultDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",
 		{0.8, 0.8, 0.8, 1.0}, {0.6, 0.6, 0.6}, 0.2)
+
+	add_material(lib, tex_lib, "treeSprites",
+		"treeSpritesArray", "defaultNormalMap", "defaultGlossHeightAoMap",
+		{1.0, 1.0, 1.0, 1.0}, {0.01, 0.01, 0.01}, 0.125)
 }
 
 material_lib_destroy :: proc(lib: ^Material_Lib) {

@@ -177,6 +177,31 @@ create_srv_2d :: proc(
 	device->CreateShaderResourceView(resource, &srv_desc, h_descriptor)
 }
 
+// C++: CreateSrv2dArray (DescriptorUtil.h).
+create_srv_2d_array :: proc(
+	device: ^d3d12.IDevice5,
+	resource: ^d3d12.IResource,
+	format: dxgi.FORMAT,
+	mip_levels: u16,
+	array_size: u16,
+	h_descriptor: d3d12.CPU_DESCRIPTOR_HANDLE,
+) {
+	srv_desc := d3d12.SHADER_RESOURCE_VIEW_DESC {
+		Shader4ComponentMapping = d3d12.DEFAULT_SHADER_4_COMPONENT_MAPPING,
+		ViewDimension = .TEXTURE2DARRAY,
+		Format = format,
+	}
+	srv_desc.Texture2DArray = {
+		MostDetailedMip = 0,
+		MipLevels = u32(mip_levels),
+		FirstArraySlice = 0,
+		ArraySize = u32(array_size),
+		PlaneSlice = 0,
+		ResourceMinLODClamp = 0,
+	}
+	device->CreateShaderResourceView(resource, &srv_desc, h_descriptor)
+}
+
 // C++: CreateSrvCube (DescriptorUtil.h).
 create_srv_cube :: proc(
 	device: ^d3d12.IDevice5,
