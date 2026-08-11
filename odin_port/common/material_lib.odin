@@ -49,7 +49,7 @@ add_material :: proc(
 	lib.next_mat_index += 1
 }
 
-// C++: MaterialLib::Init(device) — the table, trimmed to chapters ≤ 9.
+// C++: MaterialLib::Init(device) — the table, trimmed to chapters ≤ 10.
 material_lib_init :: proc(lib: ^Material_Lib, tex_lib: ^Texture_Lib) {
 	add_material(lib, tex_lib, "crate",
 		"crateDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",
@@ -58,6 +58,10 @@ material_lib_init :: proc(lib: ^Material_Lib, tex_lib: ^Texture_Lib) {
 	add_material(lib, tex_lib, "water",
 		"waterDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",
 		{1.0, 1.0, 1.0, 0.5}, {0.1, 0.1, 0.1}, 0.1)
+
+	add_material(lib, tex_lib, "fence",
+		"fenceDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",
+		{1.0, 1.0, 1.0, 1.0}, {0.1, 0.1, 0.1}, 0.25)
 
 	add_material(lib, tex_lib, "grass",
 		"grassDiffuseMap", "defaultNormalMap", "defaultGlossHeightAoMap",

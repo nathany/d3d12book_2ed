@@ -813,6 +813,21 @@ at one per static *buffer* — texture uploads add none.
 
 **New this chapter:** blend/alpha-test PSO variants — config, not code.
 
+**Reference port:** `odin_port/C10_BlendDemo`
+(`odin run odin_port/C10_BlendDemo -debug`, from the repo root).
+
+This is deliberately a small delta from `C9_TexWaves`: water moves to a transparent
+render layer with source-alpha blending, the crate becomes a two-sided alpha-tested
+wire-fence box compiled with `ALPHA_TEST=1`, and opaque/alpha-tested/transparent layers
+draw in that order. `BasicBlend.hlsl` also activates the fog fields that have occupied
+the shared pass-buffer layout since chapter 8; the Options panel exposes the same enable,
+start, and end controls as the C++ demo.
+
+Correct looks like: grass remains opaque behind translucent moving water, the wire fence
+has actual cutouts rather than black squares, and distant hills fade into the gray fog
+background. Wireframe should still replace all three PSOs live, Escape should exit 0, and
+the debug/leak reports should contain no new warnings or live objects.
+
 ### Ch 11 — Stenciling  *(Stenciling)*
 
 **New this chapter:**
