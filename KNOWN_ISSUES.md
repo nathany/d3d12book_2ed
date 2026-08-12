@@ -86,7 +86,7 @@ Suggested fix:
 Add a failure-path test or temporary fault injection that proves a method-level `Compile`
 failure reports the HRESULT without dereferencing the output.
 
-## P2: The skull loader trusts file-derived counts and indices
+## P3: The skull loader trusts file-derived counts and indices
 
 Affected code: `odin_port/common/geometry_builders.odin`, `build_skull_geometry`.
 
@@ -96,6 +96,12 @@ and parsed indices are narrowed to `i32` without verifying that they address a l
 vertex. A malformed model can therefore panic on a negative or overflowed allocation,
 attempt an unreasonable allocation, wrap buffer-view sizes, or submit out-of-range GPU
 indices.
+
+This is lower priority than the DDS parser issues because `Models/skull.txt` is a bundled,
+developer-controlled asset rather than a general input format, and the matching C++
+`BuildSkullGeometry` implementation also trusts its counts and indices. It is still worth
+fixing because the shared Odin loader otherwise turns a damaged or edited asset into an
+allocator, bounds, or GPU-validation failure instead of a useful parse error.
 
 Suggested fix:
 
@@ -128,6 +134,26 @@ transparent_pso_desc.DepthStencilState.DepthWriteMask = .ZERO
 Place this mutation before creating the transparent PSO. Visually compare the result with
 the C++ demo from camera angles where water overlaps tree sprites, then perform the standard
 resize, Escape, debug-layer, and leak checks.
+
+## P2: WavesCS uses the wrong simulation defaults
+
+Affected code: `odin_port/C13_WavesCS/waves_cs_app.odin`, application initialization.
+
+The Odin demo initializes `wave_speed` to `8.0` and `wave_damping` to `0.1`, copied from
+the earlier CPU-waves demos. The matching `WavesCSApp.h` initializes them to `3.5` and
+`0.3`. Those values are passed into `gpu_waves_init` and reapplied by
+`gpu_waves_set_constants`, so the port starts with a materially faster and less damped
+simulation than the Chapter 13 reference.
+
+| Setting | Current Odin | Matching C++ |
+| --- | ---: | ---: |
+| Wave speed | `8.0` | `3.5` |
+| Wave damping | `0.1` | `0.3` |
+
+Suggested fix: restore the `WavesCSApp.h` defaults while retaining the existing ImGui
+slider ranges and per-frame constant update. Compare animation over multiple captures—not
+only a still frame—with the C++ demo, then perform the standard resize, Escape,
+debug-layer, and leak checks.
 
 ## P2: BasicTessellation retains crate-demo controls and lighting
 
