@@ -35,25 +35,45 @@ to the other, and don't edit the other port's guide unasked.
 - Finish a demo by verifying it end-to-end (below), then updating the guide, `odin_port/README.md`
   if the run steps changed, and memory.
 
-## Code review rules
+## Code Review Rules
 
 - Review with one agent. Do not delegate to subagents unless the user explicitly asks for it.
-- Review the requested diff only. Report an issue only when it is introduced by the change,
-  has a concrete failing scenario, and is actionable at the changed location. Prefer no finding
-  over a speculative guard, stylistic preference, or low-value nitpick.
-- Treat the Odin code as a learning-oriented reference port. Compare changed behavior with the
-  corresponding C++ demo and flag meaningful divergence unless it is documented and justified.
-  Preserve the book's constants, defaults, update/draw order, input behavior, PSO and root-signature
-  state, and resource lifetime model where Odin and DirectX 12 permit it.
-- Pay particular attention to command submission and fence order, upload/resource lifetimes,
-  resource-state transitions, HRESULT and nil handling, file-derived counts, arithmetic overflow,
-  and narrowing conversions.
-- Confirm Odin behavior from the installed compiler source when language or runtime semantics are
-  material. Do not infer C++ behavior from familiarity when the matching source is available.
-- Use the Justfile to run deterministic checks. Report check failures separately from semantic
-  review findings and do not duplicate a compiler diagnostic as an inline review comment. A passing
-  check, sanitizer build, or tracking-allocator run covers only the configurations and paths that
-  actually ran.
+- The requested scope determines which regressions may be reported, not which code may be inspected.
+  Read surrounding code, callers, callees, shared helpers, and corresponding C++ sources as needed.
+  Report only issues introduced by the requested changes, with a concrete failing scenario and a
+  practical remedy. Prefer no finding over a speculative guard, style preference, or low-value nit.
+
+### Behavioral parity
+
+- Treat the Odin code as a learning-oriented reference port. For every new or materially changed
+  demo, compare the C++ member defaults and call-site constants, update/draw and input ordering,
+  geometry and material setup, and every PSO and root-signature mutation. Missing assignments count
+  as differences. The safe path is to match the book or document a necessary teaching or
+  language-specific deviation beside the code.
+- Preserve the book's resource lifetime model where Odin and Direct3D 12 permit it. Do not infer C++
+  behavior from familiarity when the matching source is available.
+
+### Fallible APIs and GPU lifetime
+
+- Trace every fallible COM, DXGI, DXC, and Win32 call through its status, output values, and cleanup.
+  The safe path is to validate success and required non-nil outputs before dereferencing, releasing,
+  waiting on, or otherwise consuming them.
+- Trace transient GPU data from allocation through command recording, submission, fence signaling,
+  completion, and reuse. A fence that permits reuse must be ordered after the submission that
+  consumes the data. Also verify resource-state transitions and descriptor lifetimes.
+
+### Untrusted input arithmetic
+
+- Validate file-derived dimensions and counts before allocation. Perform size products, sums, and
+  subresource calculations with checked, sufficiently wide arithmetic before indexing or narrowing;
+  reject values outside the API's legal limits.
+
+### Validation and reporting
+
+- Confirm material Odin behavior from the installed compiler source. Use the Justfile for
+  deterministic checks, but treat passing checks, sanitizer builds, and tracking-allocator runs as
+  evidence only for the configurations and paths that ran. Report check failures separately and do
+  not duplicate compiler diagnostics as semantic findings.
 - Do not report documented deliberate deviations or known-benign diagnostics as defects. Known
   review traps include:
 
