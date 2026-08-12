@@ -15,34 +15,25 @@ against DirectXTK12), `test_util`, and the vendored `libs/imgui`.
 
 ## Running
 
-```
-odin test odin_port/C1_XMVECTOR       # chapters 1–3 are math-only, ported as tests that
-odin test odin_port/C2_XMMATRIX       # assert values captured from the C++ demos' output
-odin test odin_port/C3_TRANSFORMATIONS
+Use the repository's root Justfile from Git Bash so windowed demos find their shaders and runtime
+DLLs without additional path handling:
 
-odin test odin_port/dds               # DDS parser: unit tests on synthetic headers +
-                                      # integration tests over every .dds in the repo
-
-odin run odin_port/APPENDIX_A
-odin run odin_port/C4_Init_Direct3D -debug    # -debug turns on the D3D12 debug layer,
-odin run odin_port/C6_Box -debug              # stderr validation log, COM leak report,
-                                              # and the Odin tracking allocator
-                                              # (common/mem_track.odin)
-odin run odin_port/C6_BoxGrid -debug
-odin run odin_port/C7_Shapes -debug
-odin run odin_port/C7_Waves -debug
-odin run odin_port/C8_LitShapes -debug    # ch 8 on needs Models/skull.txt (in the repo)
-odin run odin_port/C8_LitWaves -debug
-odin run odin_port/C9_Crate -debug        # ch 9 on needs Textures/ (in the repo);
-odin run odin_port/C9_TexturedShapes -debug   # DDS loading via common/dds_loader.odin
-odin run odin_port/C9_TexWaves -debug
-odin run odin_port/C10_BlendDemo -debug
-odin run odin_port/C11_Stenciling -debug
-odin run odin_port/C12_BillboardsGS -debug
+```bash
+just --list                       # show the available workflows
+just examples                     # list every runnable demo
+just test C1_XMVECTOR             # chapters 1–3 are math-only tests
+just test dds                     # synthetic and repository DDS parser tests
+just run APPENDIX_A
+just run C7_Waves                 # debug layer, stderr validation, COM leak report,
+                                  # and Odin tracking allocator (common/mem_track.odin)
+just check C7_Waves               # release and debug type checks
+just build-asan C13_VecAddCS      # sanitizer build goes to the session temp directory
+just validate                     # all checks, tests, and the portable DDS build
 ```
 
 **Run the windowed demos from the repo root** — shaders load by relative path
-(`Shaders/BasicColor.hlsl`), matching the C++ demos' convention.
+(`Shaders/BasicColor.hlsl`), matching the C++ demos' convention. `just run` enables `-debug`;
+use `just run-release <example>` when the instrumentation is not wanted.
 
 ### DXC runtime DLLs (one-time, ch 6+)
 
@@ -51,9 +42,10 @@ against `dxcompiler.dll` (plus `dxil.dll` for signing). Copy both from the Odin 
 folder into the repo root (= the exe's directory, which wins the DLL search — deliberately
 pinning this version over any `dxcompiler.dll` on PATH, e.g. the Vulkan SDK's):
 
-```
-copy %USERPROFILE%\tools\odin\vendor\directx\dxc\dxcompiler.dll .
-copy %USERPROFILE%\tools\odin\vendor\directx\dxc\dxil.dll .
+```bash
+repo_root="$(git rev-parse --show-toplevel)"
+cp "$HOME/tools/odin/vendor/directx/dxc/dxcompiler.dll" "$repo_root/"
+cp "$HOME/tools/odin/vendor/directx/dxc/dxil.dll" "$repo_root/"
 ```
 
 Both are gitignored. The vendored version is 1.6.2112 — old but SM 6.6-capable, verified

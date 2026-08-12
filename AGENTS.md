@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-Working notes for Claude Code in this repo. Reader-facing porting insight belongs in
+Working notes for coding agents in this repo. Reader-facing porting insight belongs in
 `Frank Luna ODIN_PORTING_GUIDE.md` — that guide is written for a human working through the
 book, so keep tooling, verification mechanics, and workflow here instead.
 
@@ -35,20 +35,55 @@ to the other, and don't edit the other port's guide unasked.
 - Finish a demo by verifying it end-to-end (below), then updating the guide, `odin_port/README.md`
   if the run steps changed, and memory.
 
+## Code review rules
+
+- Review with one agent. Do not delegate to subagents unless the user explicitly asks for it.
+- Review the requested diff only. Report an issue only when it is introduced by the change,
+  has a concrete failing scenario, and is actionable at the changed location. Prefer no finding
+  over a speculative guard, stylistic preference, or low-value nitpick.
+- Treat the Odin code as a learning-oriented reference port. Compare changed behavior with the
+  corresponding C++ demo and flag meaningful divergence unless it is documented and justified.
+  Preserve the book's constants, defaults, update/draw order, input behavior, PSO and root-signature
+  state, and resource lifetime model where Odin and DirectX 12 permit it.
+- Pay particular attention to command submission and fence order, upload/resource lifetimes,
+  resource-state transitions, HRESULT and nil handling, file-derived counts, arithmetic overflow,
+  and narrowing conversions.
+- Confirm Odin behavior from the installed compiler source when language or runtime semantics are
+  material. Do not infer C++ behavior from familiarity when the matching source is available.
+- Use the Justfile to run deterministic checks. Report check failures separately from semantic
+  review findings and do not duplicate a compiler diagnostic as an inline review comment. A passing
+  check, sanitizer build, or tracking-allocator run covers only the configurations and paths that
+  actually ran.
+- Do not report documented deliberate deviations or known-benign diagnostics as defects. Known
+  review traps include:
+
+    - Chapter 1 intentionally models its teaching vectors with three lanes and ignores `w`.
+    - Assignment through a zero-value Odin map lazily initializes its backing store with the current
+      context allocator; confirm the installed runtime before claiming the map must be made first.
+    - The book also leaves the waves render item's `vertex_count` unset, and the port does not consume
+      that field. Treat it as a finding only if a changed path starts relying on it.
+    - The known D3D12 `id 1328` warning described below matches the reference behavior.
+- Keep findings concise and prioritized. Attach feedback to the shortest useful changed-line range;
+  if there are no actionable findings, say so directly.
+
 ## Build and run
 
 Windowed demos run **from the repo root** — shaders resolve by relative path
 (`Shaders/BasicColor.hlsl`) and the pinned DXC DLLs live there, matching the C++ demos'
 convention.
 
+```bash
+just run C7_Waves          # -debug gates ODIN_DEBUG: D3D12 debug layer,
+                           # InfoQueue1 -> stderr, COM leak report, and the
+                           # Odin tracking allocator
+just test C2_XMMATRIX      # ch 1-3 are math-only, ported as tests
+just test dds              # DDS parser tests (integration half needs repo root)
+just check C7_Waves        # release and debug type checks
+just build-asan C7_Waves   # sanitizer build in the session temp directory
 ```
-odin run odin_port/C7_Waves -debug    # -debug gates ODIN_DEBUG: D3D12 debug layer,
-                                      # InfoQueue1 -> stderr, COM leak report, and the
-                                      # Odin tracking allocator
-odin test odin_port/C2_XMMATRIX       # ch 1-3 are math-only, ported as tests
-odin test odin_port/dds               # DDS parser tests (integration half needs repo root)
-odin build odin_port/C7_Waves -debug -out:<scratchpad>/check.exe   # compile check only
-```
+
+Run `just --list` for the complete set of recipes. The root Justfile uses Bash and keeps shader,
+model, texture, and DLL lookup relative to the repository root.
 
 `core:testing` here has **no `log`/`logf`/`errorf`** — use `testing.expectf(t, false, ...)`
 to fail with a message, and `core:log`'s `log.info`/`log.warnf` for test output.
@@ -73,8 +108,8 @@ emit them too, invisibly — ours are only visible because InfoQueue1 pipes to s
 
 Every windowed demo gets the same five checks before it counts as done: the render matches the
 C++ framing, a resize storm survives, Escape exits 0, the debug layer is silent, and both leak
-reports (COM and Odin) are silent. Automation is PowerShell plus P/Invoke — each trap below
-cost real time to find.
+reports (COM and Odin) are silent. The verification notes below came from PowerShell plus P/Invoke;
+keep new repeatable commands in the root Justfile and prefer Git Bash-compatible helpers.
 
 - **Escape arrives on `WM_KEYUP`** (0x0101), not `WM_KEYDOWN` — that's where the book's
   `MsgProc` handles `VK_ESCAPE`. A posted KEYDOWN is silently ignored and the demo never exits.
@@ -100,6 +135,9 @@ cost real time to find.
 
 ## Repo conventions
 
+- Prefer Git Bash for terminal commands. Do not add PowerShell scripts unless the user asks for
+  them; expose repeatable Odin build, test, and validation workflows as recipes in the root
+  Justfile.
 - **LF line endings everywhere, intentionally, even on Windows.** Convert vendored or generated
   files that arrive as CRLF. Check with `file` (it names CRLF explicitly) — *not* with
   `grep -c $'\r'`, because MSYS tools translate on read and report CRLF for pure-LF files.
@@ -111,8 +149,8 @@ cost real time to find.
 
 ## Odin toolchain notes
 
-- Installed compiler is **dev-2026-07a** (a hotfix release, though `odin version` says nightly).
-  Odin releases monthly, so stdlib details drift.
+- Installed compiler is **dev-2026-08-nightly:902106f**. Odin releases monthly, so stdlib details
+  drift.
 - A full Odin source checkout lives at `C:\Users\nathany\src\github.com\odin-lang\Odin` —
   **check it rather than guessing** at stdlib behavior. That's how the temp allocator's
   `.Free_All` support and the tracking allocator's bad-free panic were confirmed.
