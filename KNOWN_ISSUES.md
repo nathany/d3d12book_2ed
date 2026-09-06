@@ -1,8 +1,34 @@
 # Known Issues
 
-These issues were found while reviewing the `odin` branch against `main` on
-2026-08-11. They are deliberately deferred; none of the implementation fixes described
-below have been applied yet.
+Issues originally recorded on 2026-08-11, revalidated against the Odin port, matching
+C++ demos, shaders, and vendored DirectXTK12 on 2026-09-06. **All implementation fixes
+below remain proposed and unapplied.** The documentation audit does not authorize code changes.
+
+This ledger separates defects from their priority in a learning-oriented project. A successful
+run on bundled assets does not disprove a failure path; a different constant does not prove
+a visual defect unless a shader or another consumer uses it.
+
+## Priority and educational impact
+
+- **P1:** fix promptly; normal demo execution can violate a fundamental correctness guarantee.
+- **P2:** scheduled correctness work, including book-behavior mismatches and shared boundary errors.
+- **P3:** optional defensive or teaching cleanup with low impact on current bundled demos.
+
+| Issue | Status / priority | Relationship to reference | Recommended change size |
+| --- | --- | --- | --- |
+| Graphics-memory page retirement | Confirmed, P1 | Lifetime lost in DirectXTK12 reduction | Small ordering change across 15 frame draw paths |
+| DDS layout arithmetic | Reproduced, P2 for bundled demos; P1 before external-input use | Validation omitted or weakened in reduced loader | Moderate parser/upload-boundary work |
+| DXC method failure | Source-confirmed, P2 | Weakness also present in book C++ | Small shared-helper change |
+| Billboard transparent depth | Source-confirmed, P2 | Missing C++ PSO assignment | One assignment restores parity |
+| WavesCS defaults | Source-confirmed, P2 | Earlier demo defaults copied | Two values restore parity |
+| BasicTessellation zoom | Source-confirmed, P2 | Crate controls copied | Restore scales and clamp bounds |
+| BezierPatch camera/zoom | Source-confirmed, P2 | Other demo defaults and controls copied | Restore initialization and zoom constants |
+| Skull counts and indices | Source-confirmed, P3 | Book also trusts bundled model | Focused parser checks |
+| Chapter 14 unused lights / stale attribution | Confirmed differences, P3 cleanup | Lights differ but shaders do not consume them | Optional constant, naming and comment cleanup |
+
+Recommended sequence: allocator ordering, small demo parity fixes, shared shader/parser
+boundary checks, then optional cleanup. Keep individual demos reviewable and obtain the
+appropriate implementation go-ahead. Retain the per-demo structure and existing Odin idioms.
 
 ## P1: Graphics-memory pages can be recycled before the GPU is finished
 
@@ -10,7 +36,7 @@ Affected code:
 
 - `odin_port/common/graphics_memory.odin`, especially `commit`
 - Every frame draw path that calls `common.commit` before `ExecuteCommandLists`
-  (the Chapter 7 through Chapter 14 demos)
+  (15 frame draw paths across the Chapter 7 through Chapter 14 demos)
 
 The reduced allocator queues its private fence signal from `commit`. The draw paths call
 `commit` before they submit the command list that consumes the constants allocated from
@@ -27,14 +53,20 @@ only a GPU virtual address, so it cannot rely on the original ordering.
 Suggested fix:
 
 - Move each frame's `common.commit` call after its consuming `ExecuteCommandLists`, as the
-  one-time compute path in `C13_VecAddCS` already does; or
-- Restore DirectXTK12-style page-retaining resource handles and retirement semantics.
+  one-time compute path in `C13_VecAddCS` already does.
+- Correct the allocator header's false claim that either order works, plus dependent handle
+  comments. Explain: submit consumers, signal afterward, recycle only after completion.
+
+This small, necessary deviation from the book's call order restores its intended lifetime
+guarantee. Restoring DirectXTK12's page-retaining resource handles is a much larger alternative
+and is not recommended for these demos. See `External/DirectXTK12/Src/LinearAllocator.cpp`,
+`FenceCommittedPages` and its refcount test.
 
 Verify under deliberate GPU backlog, not only an unconstrained local run. Constant data
-must remain stable when the CPU gets ahead of the GPU, and the debug layer and both leak
-reports must remain silent.
+must remain stable when the CPU gets ahead of the GPU, with no unexpected debug-layer messages or live allocations.
+See `AGENTS.md` for detector requirements and the known-benign warning exception.
 
-## P1: Malformed DDS headers can overflow layout arithmetic
+## P2: Malformed DDS headers can overflow layout arithmetic
 
 Affected code:
 
@@ -49,8 +81,9 @@ arithmetic. This includes cube-array expansion, `array_size * mip_levels`, compr
 counts, row sizes, surface sizes, and accumulated offsets. A DX10 `array_size` of zero is
 also normalized to one, whereas DirectXTK12 rejects it.
 
-For a concrete failure, `array_size = 0x80000000` and `mip_levels = 2` makes
-`subresource_count` wrap to zero. `parse` allocates an empty destination, but
+A temporary probe on 2026-09-06 reproduced the bounds panic using a 1x1 DX10 RGBA8
+header with `array_size = 0x80000000`, `mip_levels = 2`, and four payload bytes.
+`subresource_count` wraps to zero. `parse` allocates an empty destination, but
 `parse_subresources` still enters the original array/mip loops and writes `dst[0]`, causing
 a bounds panic. Other wrapped surface calculations can make malformed data appear large
 enough, produce overlapping offsets, or reach `texture_upload.odin` before array and mip
@@ -58,13 +91,24 @@ counts are silently narrowed to `u16`.
 
 Suggested fix:
 
-- Reject zero or illegal dimensions, DX10 array sizes, mip counts, and cube counts.
-- Enforce D3D12 dimension, array, mip, row-pitch, and subresource-count limits before
-  resource creation.
-- Perform every product, sum, and offset update with checked `u64`/`uint` arithmetic.
-- Check representability before narrowing to `u32` or `u16`.
-- Add malformed-header tests for zero arrays, cube multiplication, subresource-count
-  overflow, row/surface overflow, accumulated-offset overflow, and D3D12 limit violations.
+- In `dds`, reject invalid dimensions, zero DX10 arrays, illegal mip chains and invalid cube
+  counts. Preserve the valid legacy convention that a stored mip count of zero means one.
+- Widen operands before products and sums; check arithmetic overflow, destination
+  representability, accumulated offsets and allocation bounds before allocation or indexing.
+  Apply the contract to public layout helpers as well as the allocating `parse` wrapper.
+- In `common/texture_upload.odin`, enforce D3D12 dimension, array, mip, pitch and subresource
+  restrictions before narrowing or resource creation. Keep graphics imports out of `dds`.
+- Add malformed-header tests for zero arrays, cube expansion, subresource-count overflow,
+  row/surface overflow and accumulated offsets, plus focused upload-boundary limit checks.
+
+The same probe confirmed that `surface_info(0x08000000, 1, .R8G8B8A8_UNORM)` returns
+zero bytes and success, and that a zero DX10 array is accepted as one layer. Ordinary Odin
+integer arithmetic wraps; widening only after multiplication cannot repair the result.
+
+P2 reflects the current bundled, developer-controlled assets. Treat this as P1 before accepting
+external DDS files or presenting the parser as safe for general reuse. The proposed work is
+moderate in size but stays in shared loaders; demo draw code and the supported-format subset
+need not change. Preserve returned parser errors and caller-owned fatal-error policy.
 
 ## P2: A failing DXC `Compile` call dereferences a nil result
 
@@ -73,7 +117,9 @@ Affected code: `odin_port/common/d3d_util.odin`, `compile_shader`.
 If `IDxcCompiler3::Compile` itself returns a failing HRESULT, its `IResult` output may stay
 nil. The current code still registers `result->Release` and calls `result->GetOutput` before
 passing the HRESULT to `hr_panic`, turning the failure into an access violation. The HRESULT
-returned by `IResult::GetStatus` is also ignored.
+returned by `IResult::GetStatus` is also ignored. The book's `Common/d3dUtil.cpp` contains
+the same method-failure/status-handling weaknesses: inherited defensive debt, rather than
+a difference in the successful compilation path.
 
 Suggested fix:
 
@@ -83,7 +129,8 @@ Suggested fix:
   diagnostic output.
 - Preserve the existing stderr and `MessageBoxW` fatal-error reporting behavior.
 
-Add a failure-path test or temporary fault injection that proves a method-level `Compile`
+This is a small shared-helper change; preserve the current shader-warning policy and
+startup flow. Add a failure-path test or temporary fault injection that proves a method-level `Compile`
 failure reports the HRESULT without dereferencing the output.
 
 ## P3: The skull loader trusts file-derived counts and indices
@@ -122,8 +169,9 @@ Affected code: `odin_port/C12_BillboardsGS/billboard_app.odin`, `build_psos`.
 The C++ `BillboardApp` sets the transparent PSO's depth write mask to
 `D3D12_DEPTH_WRITE_MASK_ZERO`. The Odin PSO inherits the default `ALL` value. Transparent
 water is drawn before the billboard sprites, so the water can populate depth and make
-later trees viewed through it fail their depth test instead of being composited through the
-water.
+later overlapping tree fragments fail their depth test. Disabling depth writes restores the
+book's draw behavior; it does not introduce general transparency sorting or guarantee physically
+correct compositing of sprites drawn after water.
 
 Suggested fix:
 
@@ -131,7 +179,7 @@ Suggested fix:
 transparent_pso_desc.DepthStencilState.DepthWriteMask = .ZERO
 ```
 
-Place this mutation before creating the transparent PSO. Visually compare the result with
+This one-assignment fix restores C++ parity. Place it before creating the transparent PSO. Visually compare the result with
 the C++ demo from camera angles where water overlaps tree sprites, then perform the standard
 resize, Escape, debug-layer, and leak checks.
 
@@ -150,33 +198,31 @@ simulation than the Chapter 13 reference.
 | Wave speed | `8.0` | `3.5` |
 | Wave damping | `0.1` | `0.3` |
 
-Suggested fix: restore the `WavesCSApp.h` defaults while retaining the existing ImGui
+Suggested fix: restore the two `WavesCSApp.h` defaults (no deliberate divergence) while retaining the existing ImGui
 slider ranges and per-frame constant update. Compare animation over multiple captures—not
 only a still frame—with the C++ demo, then perform the standard resize, Escape,
 debug-layer, and leak checks.
 
-## P2: BasicTessellation retains crate-demo controls and lighting
+## P2: BasicTessellation retains crate-demo zoom controls
 
 Affected code: `odin_port/C14_BasicTessellation/basic_tessellation_app.odin`.
 
-The initial camera values match `BasicTessellationApp`, but other copied values do not:
+The initial camera values match `BasicTessellationApp`, but copied zoom controls do not:
 
 | Setting | Current Odin | Matching C++ |
 | --- | ---: | ---: |
 | Right-drag scale | `0.005` | `0.05` |
 | Radius clamp | `3.0 .. 25.0` | `5.0 .. 150.0` |
-| Light 0 strength | `{0.9, 0.8, 0.7}` | `{0.8, 0.75, 0.7}` |
-| Light 1 strength | `{0.4, 0.4, 0.4}` | `{0.3, 0.3, 0.3}` |
 
 Because the valid initial radius is `50`, the first right-button drag clamps it immediately
-to `25`. The light differences also change the intended shading.
+to `25`. This also changes the distance-dependent tessellation demonstrated by
+`Shaders/BasicTessellation.hlsl`.
 
-Suggested fix: restore the C++ constants in `on_mouse_move` and `update_main_pass_cb`, and
-replace the remaining `CrateApp` attribution comments with the matching
-`BasicTessellationApp` source references while touching those sections. Verify initial
-framing, zoom behavior, lighting, and wireframe tessellation against the C++ demo.
+Suggested fix: restore the C++ constants in `on_mouse_move`. This is a small parity
+restoration. Verify initial framing, smooth zoom across the book's range, and the resulting
+wireframe tessellation. Unused lights and copied attribution are separate cleanup below.
 
-## P2: BezierPatch uses the wrong camera, controls, and lighting
+## P2: BezierPatch uses the wrong camera and zoom controls
 
 Affected code: `odin_port/C14_BezierPatch/bezier_patch_app.odin`.
 
@@ -189,32 +235,53 @@ This file retains initialization and interaction values copied from another demo
 | Initial radius | `50.0` | `30.0` |
 | Right-drag scale | `0.005` | `0.05` |
 | Radius clamp | `3.0 .. 25.0` | `5.0 .. 150.0` |
-| Light 0 strength | `{0.9, 0.8, 0.7}` | `{0.8, 0.75, 0.7}` |
-| Light 1 strength | `{0.4, 0.4, 0.4}` | `{0.3, 0.3, 0.3}` |
 
-These differences change the sample's initial framing, make the first zoom gesture snap an
-out-of-range radius, and alter the patch shading.
+These differences change the sample's initial framing and make the first zoom gesture snap
+an out-of-range radius.
 
-Suggested fix: restore the values from `BezierPatchApp.h/.cpp` in initialization,
-`on_mouse_move`, and `update_main_pass_cb`. Replace the remaining `CrateApp` attribution
-comments with `BezierPatchApp` references while touching the affected sections. Verify the
-default view, tessellation slider, zoom range, lighting, and wireframe patch against the C++
-demo.
+Suggested fix: restore the values from `BezierPatchApp.h/.cpp` in initialization and
+`on_mouse_move`. This is a small parity restoration. Verify the default view, tessellation
+slider, zoom range, and wireframe patch against the C++ demo.
 
-## Validation status when recorded
+## P3: Chapter 14 unused lights and stale attribution
 
-The implementation was not changed during the review. The commands underlying
-`just validate` all passed:
+Both Chapter 14 Odin demos use light strengths `{0.9, 0.8, 0.7}` and `{0.4, 0.4, 0.4}`;
+the corresponding C++ uses `{0.8, 0.75, 0.7}` and `{0.3, 0.3, 0.3}`. These differences are
+real, but the earlier claim that they alter shading is withdrawn: `PS` in both
+`Shaders/BasicTessellation.hlsl` and `Shaders/BezierTessellation.hlsl` returns constant white.
+There is no present visual defect or meaningful lighting comparison to run for these values.
 
-- Release and debug type checks for every app, test, and support package
-- Chapter 1-3 math tests
-- DDS unit and integration tests: 100 book textures and 1,359 subresources
+Optionally match the unused C++ values for reference fidelity. Both packages also retain
+`Crate_App` and `CrateApp` comments, including descriptions of crate geometry and zoom controls.
+Rename the application types and update attribution to the matching Chapter 14 sources in a
+later code-editing pass. Correct copied waves-index comments too: 128x128 vertices fit in
+16-bit indices; the port's 32-bit choice matches C++, but is not required by that vertex count.
+These are teaching improvements, not additional rendering defects.
+
+## Validation evidence and remaining checks
+
+The 2026-08-11 review recorded successful direct execution of the commands underlying
+`just validate`; interactive checks were not rerun. On 2026-09-06, the fresh audit again
+passed those checks and used a temporary DDS probe to reproduce the malformed-input behavior
+above. The probe was outside the repository and was not added to the permanent test suite.
+
+During the 2026-09-06 documentation follow-up, **`just 1.58.0` resolved from the existing
+WinGet PATH entry in Git Bash, and `just validate` itself passed**:
+
+- 52 release/debug type checks: 19 apps, four test packages, three support packages
+- 29 tests: four Chapter 1, one Chapter 2, five Chapter 3, and 19 DDS tests
+- DDS integration coverage: 100 book textures, 1,359 subresources, 439.4 MiB
 - Portable Linux AMD64 object build of `odin_port/dds`
 
-The `just` executable was not available in the review shell, so the recipe's commands were
-run directly. Interactive window rendering, resize storms, Escape handling, debug-layer
-output, and COM/Odin leak checks were not rerun during this review.
+The initial agent sandbox could not execute the installed WinGet tool. Running the same
+Git Bash command with approved access resolved it; this was not a missing installation or
+PATH entry. Discovery guidance belongs in `AGENTS.md`.
 
-`git diff --check main...HEAD` also reported mixed space/tab indentation in six signature
-lines in `odin_port/libs/imgui/backends/dx12/imgui_impl_dx12.odin` (lines 38-44 at the time
-of review). This is kept as a validation note rather than a behavioral finding.
+No implementation fixes or permanent tests were added by this documentation update. Interactive
+window rendering, GPU-backlog behavior, resize storms, Escape handling, debug-layer output,
+and COM/Odin leak checks were not rerun. Source confirmation and parser probes do not replace
+those acceptance checks when the code is eventually changed.
+
+The existing `git diff --check main...HEAD` warnings concern mixed space/tab indentation in six
+signature lines of `odin_port/libs/imgui/backends/dx12/imgui_impl_dx12.odin` (38-44).
+They are a validation note, not a behavioral finding.
