@@ -99,9 +99,10 @@ main :: proc() {
 	// C++ member initializers (CrateApp.h) — a close-in camera for the single crate.
 	app.view = d3d_math.MAT4_IDENTITY
 	app.proj = d3d_math.MAT4_IDENTITY
-	app.theta = 1.3 * math.PI
-	app.phi = 0.25 * math.PI
-	app.radius = 50.0
+	// C++: BezierPatchApp.h — mTheta = 0.7f*Pi; mPhi = 0.42f*Pi; mRadius = 30.0f;
+	app.theta = 0.7 * math.PI
+	app.phi = 0.42 * math.PI
+	app.radius = 30.0
 	app.draw_wireframe = false
 	app.tess_factor = 32.0
 	app.base_light_directions = {
@@ -539,15 +540,15 @@ on_mouse_move :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 			// Restrict the angle mPhi.
 			app.phi = clamp(app.phi, 0.1, math.PI - 0.1)
 		} else if btn_state & win.MK_RBUTTON != 0 {
-			// Make each pixel correspond to 0.005 unit in the scene.
-			dx := 0.005 * f32(x - app.last_mouse_pos.x)
-			dy := 0.005 * f32(y - app.last_mouse_pos.y)
+			// C++: BezierPatchApp::OnMouseMove — 0.05 unit per pixel.
+			dx := 0.05 * f32(x - app.last_mouse_pos.x)
+			dy := 0.05 * f32(y - app.last_mouse_pos.y)
 
 			// Update the camera radius based on input.
 			app.radius += dx - dy
 
 			// Restrict the radius.
-			app.radius = clamp(app.radius, 3.0, 25.0)
+			app.radius = clamp(app.radius, 5.0, 150.0)
 		}
 
 		app.last_mouse_pos = {x, y}

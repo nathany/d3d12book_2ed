@@ -887,9 +887,9 @@ produce the surface triangles.
 
 Both examples use wireframe rasterization and pixel shaders returning constant white,
 making the generated triangles easy to see. Light-strength edits therefore have no effect
-on these shaders. BasicTessellation now uses the book's 0.05-unit zoom scale and 5–150 radius range.
-The BezierPatch camera/zoom differences are pending parity fixes
-in [the issue ledger](KNOWN_ISSUES.md); do not copy those constants as deliberate adaptations.
+on these shaders. Both demos use the book's **0.05-unit zoom scale** and **5–150 radius range**.
+BasicTessellation starts at radius 50; BezierPatch starts at radius 30 with theta `0.7 * PI`
+and phi `0.42 * PI`. The first right-drag should change the view smoothly, without a sudden snap.
 
 ---
 

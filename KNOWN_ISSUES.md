@@ -23,7 +23,7 @@ a visual defect unless a shader or another consumer uses it.
 | Billboard transparent depth | ✅ Fixed, P2 | Missing C++ PSO assignment | One assignment restores parity |
 | WavesCS defaults | ✅ Fixed, P2 | Earlier demo defaults copied | Two values restore parity |
 | BasicTessellation zoom | ✅ Fixed, P2 | Crate controls copied | Restore scales and clamp bounds |
-| BezierPatch camera/zoom | Source-confirmed, P2 | Other demo defaults and controls copied | Restore initialization and zoom constants |
+| BezierPatch camera/zoom | ✅ Fixed, P2 | Other demo defaults and controls copied | Restore initialization and zoom constants |
 | Skull counts and indices | Source-confirmed, P3 | Book also trusts bundled model | Focused parser checks |
 | Chapter 14 unused lights / stale attribution | Confirmed differences, P3 cleanup | Lights differ but shaders do not consume them | Optional constant, naming and comment cleanup |
 
@@ -302,9 +302,11 @@ Unused lights and copied attribution remain separate cleanup below.
 
 ## P2: BezierPatch uses the wrong camera and zoom controls
 
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).**
+
 Affected code: `odin_port/C14_BezierPatch/bezier_patch_app.odin`.
 
-This file retains initialization and interaction values copied from another demo:
+This file previously retained initialization and interaction values copied from another demo:
 
 | Setting | Current Odin | Matching C++ |
 | --- | ---: | ---: |
@@ -317,9 +319,15 @@ This file retains initialization and interaction values copied from another demo
 These differences change the sample's initial framing and make the first zoom gesture snap
 an out-of-range radius.
 
-Suggested fix: restore the values from `BezierPatchApp.h/.cpp` in initialization and
-`on_mouse_move`. This is a small parity restoration. Verify the default view, tessellation
-slider, zoom range, and wireframe patch against the C++ demo.
+Implemented: restored all five settings from `BezierPatchApp.h/.cpp`. Release/debug checks
+and an isolated mouse-handler test passed on `dev-2026-09-nightly:a2fb372`: zero-distance
+drag preserves radius 30, one pixel produces 30.05, and large drags clamp to 5/150. The fixed
+Odin and freshly built C++ demos matched initial framing and near/far zoom behavior. Both
+tessellation sliders increased the displayed factor from 32 to approximately 52 and visibly
+increased wireframe density. The temporary C++ project needed its stale shader-copy path
+redirected to the unchanged repository shader. An obscured comparison was rerun.
+The fixed Odin demo survived six resizes and exited 0 through Escape, with two expected
+id 1328 warnings and no unexpected debug or COM/Odin leak messages.
 
 ## P3: Chapter 14 unused lights and stale attribution
 
