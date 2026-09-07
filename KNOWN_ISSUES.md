@@ -21,7 +21,7 @@ a visual defect unless a shader or another consumer uses it.
 | DDS layout arithmetic | ✅ Fixed, P2 | Validation omitted or weakened in reduced loader | Bounded parser arithmetic and upload-limit checks |
 | DXC method failure | ✅ Fixed, P2 | Weakness also present in book C++ | Small shared-helper change |
 | Billboard transparent depth | ✅ Fixed, P2 | Missing C++ PSO assignment | One assignment restores parity |
-| WavesCS defaults | Source-confirmed, P2 | Earlier demo defaults copied | Two values restore parity |
+| WavesCS defaults | ✅ Fixed, P2 | Earlier demo defaults copied | Two values restore parity |
 | BasicTessellation zoom | Source-confirmed, P2 | Crate controls copied | Restore scales and clamp bounds |
 | BezierPatch camera/zoom | Source-confirmed, P2 | Other demo defaults and controls copied | Restore initialization and zoom constants |
 | Skull counts and indices | Source-confirmed, P3 | Book also trusts bundled model | Focused parser checks |
@@ -251,9 +251,11 @@ rerun. The temporary C++ build emitted existing C4267 conversion warnings; Odin 
 
 ## P2: WavesCS uses the wrong simulation defaults
 
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).**
+
 Affected code: `odin_port/C13_WavesCS/waves_cs_app.odin`, application initialization.
 
-The Odin demo initializes `wave_speed` to `8.0` and `wave_damping` to `0.1`, copied from
+The Odin demo previously initialized `wave_speed` to `8.0` and `wave_damping` to `0.1`, copied from
 the earlier CPU-waves demos. The matching `WavesCSApp.h` initializes them to `3.5` and
 `0.3`. Those values are passed into `gpu_waves_init` and reapplied by
 `gpu_waves_set_constants`, so the port starts with a materially faster and less damped
@@ -264,10 +266,13 @@ simulation than the Chapter 13 reference.
 | Wave speed | `8.0` | `3.5` |
 | Wave damping | `0.1` | `0.3` |
 
-Suggested fix: restore the two `WavesCSApp.h` defaults (no deliberate divergence) while retaining the existing ImGui
-slider ranges and per-frame constant update. Compare animation over multiple captures—not
-only a still frame—with the C++ demo, then perform the standard resize, Escape,
-debug-layer, and leak checks.
+Implemented: restored the two `WavesCSApp.h` defaults while retaining slider ranges and
+per-frame constant updates. On `dev-2026-09-nightly:a2fb372`, release/debug checks passed.
+The fixed Odin and freshly built, unchanged C++ demos both displayed speed 3.500 and damping
+0.300; captures 1.2 seconds apart showed continuing wave animation. Disturbance timing is
+randomized, so this establishes matching defaults and animated behavior, not pixel-identical
+simulations. Both survived six resizes and exited 0 through Escape. Odin emitted only six
+expected id 1328 warnings and no unexpected debug or COM/Odin leak messages.
 
 ## P2: BasicTessellation retains crate-demo zoom controls
 

@@ -120,8 +120,9 @@ main :: proc() {
 	app.radius = 50.0
 	app.draw_wireframe = false
 	app.wave_scale = 1.0
-	app.wave_speed = 8.0
-	app.wave_damping = 0.1
+	// C++: WavesCSApp.h — mWaveSpeed = 3.5f; mWaveDamping = 0.3f;
+	app.wave_speed = 3.5
+	app.wave_damping = 0.3
 	app.fog_color = {0.6, 0.6, 0.6, 1.0}
 	app.fog_enabled = true
 	app.fog_start = 20.0

@@ -863,6 +863,9 @@ of passes should spread the blur farther.
 `Gpu_Waves` replaces the CPU vertex stream with three `R32_FLOAT` solution textures. Compute
 updates and rotates previous/current/next roles; the vertex shader samples the current
 solution to displace the water grid. Descriptor indices must follow those roles too.
+This sample starts with speed **3.5** and damping **0.3**, matching `WavesCSApp.h` rather
+than the earlier CPU-wave defaults. Compare how disturbances spread and settle before
+changing the sliders; a single still frame cannot show the simulation's behavior.
 The current port's speed/damping defaults differ from C++; that pending correction is in
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
