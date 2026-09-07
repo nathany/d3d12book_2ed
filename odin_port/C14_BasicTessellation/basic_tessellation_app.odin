@@ -535,15 +535,15 @@ on_mouse_move :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 			// Restrict the angle mPhi.
 			app.phi = clamp(app.phi, 0.1, math.PI - 0.1)
 		} else if btn_state & win.MK_RBUTTON != 0 {
-			// Make each pixel correspond to 0.005 unit in the scene.
-			dx := 0.005 * f32(x - app.last_mouse_pos.x)
-			dy := 0.005 * f32(y - app.last_mouse_pos.y)
+			// C++: BasicTessellationApp::OnMouseMove — 0.05 unit per pixel.
+			dx := 0.05 * f32(x - app.last_mouse_pos.x)
+			dy := 0.05 * f32(y - app.last_mouse_pos.y)
 
 			// Update the camera radius based on input.
 			app.radius += dx - dy
 
 			// Restrict the radius.
-			app.radius = clamp(app.radius, 3.0, 25.0)
+			app.radius = clamp(app.radius, 5.0, 150.0)
 		}
 
 		app.last_mouse_pos = {x, y}

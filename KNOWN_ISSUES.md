@@ -22,7 +22,7 @@ a visual defect unless a shader or another consumer uses it.
 | DXC method failure | ✅ Fixed, P2 | Weakness also present in book C++ | Small shared-helper change |
 | Billboard transparent depth | ✅ Fixed, P2 | Missing C++ PSO assignment | One assignment restores parity |
 | WavesCS defaults | ✅ Fixed, P2 | Earlier demo defaults copied | Two values restore parity |
-| BasicTessellation zoom | Source-confirmed, P2 | Crate controls copied | Restore scales and clamp bounds |
+| BasicTessellation zoom | ✅ Fixed, P2 | Crate controls copied | Restore scales and clamp bounds |
 | BezierPatch camera/zoom | Source-confirmed, P2 | Other demo defaults and controls copied | Restore initialization and zoom constants |
 | Skull counts and indices | Source-confirmed, P3 | Book also trusts bundled model | Focused parser checks |
 | Chapter 14 unused lights / stale attribution | Confirmed differences, P3 cleanup | Lights differ but shaders do not consume them | Optional constant, naming and comment cleanup |
@@ -276,9 +276,11 @@ expected id 1328 warnings and no unexpected debug or COM/Odin leak messages.
 
 ## P2: BasicTessellation retains crate-demo zoom controls
 
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).**
+
 Affected code: `odin_port/C14_BasicTessellation/basic_tessellation_app.odin`.
 
-The initial camera values match `BasicTessellationApp`, but copied zoom controls do not:
+The initial camera values matched `BasicTessellationApp`, but the former copied zoom controls did not:
 
 | Setting | Current Odin | Matching C++ |
 | --- | ---: | ---: |
@@ -289,9 +291,14 @@ Because the valid initial radius is `50`, the first right-button drag clamps it 
 to `25`. This also changes the distance-dependent tessellation demonstrated by
 `Shaders/BasicTessellation.hlsl`.
 
-Suggested fix: restore the C++ constants in `on_mouse_move`. This is a small parity
-restoration. Verify initial framing, smooth zoom across the book's range, and the resulting
-wireframe tessellation. Unused lights and copied attribution are separate cleanup below.
+Implemented: restored the C++ constants in `on_mouse_move` and corrected its scale comment.
+An isolated handler test failed against the old code and passed against the fix: zero-distance
+drag preserves radius 50, one pixel produces 50.05, and large drags clamp to 5/150. Actual
+Odin and freshly built, unchanged C++ demos were compared at initial, zero/one-pixel, near
+and far views; their framing and wireframe tessellation agreed. Release/debug checks passed
+on `dev-2026-09-nightly:a2fb372`; the fixed demo survived six resizes and exited 0 through
+Escape with two expected id 1328 warnings and no unexpected debug or COM/Odin leak messages.
+Unused lights and copied attribution remain separate cleanup below.
 
 ## P2: BezierPatch uses the wrong camera and zoom controls
 

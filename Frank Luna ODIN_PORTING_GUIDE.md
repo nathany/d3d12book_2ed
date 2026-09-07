@@ -887,7 +887,8 @@ produce the surface triangles.
 
 Both examples use wireframe rasterization and pixel shaders returning constant white,
 making the generated triangles easy to see. Light-strength edits therefore have no effect
-on these shaders. The current Chapter 14 camera/zoom differences are pending parity fixes
+on these shaders. BasicTessellation now uses the book's 0.05-unit zoom scale and 5–150 radius range.
+The BezierPatch camera/zoom differences are pending parity fixes
 in [the issue ledger](KNOWN_ISSUES.md); do not copy those constants as deliberate adaptations.
 
 ---
