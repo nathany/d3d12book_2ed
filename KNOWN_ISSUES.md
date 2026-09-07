@@ -2,8 +2,8 @@
 
 Issues originally recorded on 2026-08-11, revalidated against the Odin port, matching
 C++ demos, shaders, and vendored DirectXTK12 on 2026-09-06. Fixed issues are marked ✅ below;
-each entry records its implementation status and verification evidence. The user authorized
-the remaining issues to be fixed and verified one at a time, with a separate commit per issue.
+each entry records its implementation status and verification evidence. All listed issues
+have been fixed and verified, with the remaining-issues pass committed one issue at a time.
 
 This ledger separates defects from their priority in a learning-oriented project. A successful
 run on bundled assets does not disprove a failure path; a different constant does not prove
@@ -25,11 +25,10 @@ a visual defect unless a shader or another consumer uses it.
 | BasicTessellation zoom | ✅ Fixed, P2 | Crate controls copied | Restore scales and clamp bounds |
 | BezierPatch camera/zoom | ✅ Fixed, P2 | Other demo defaults and controls copied | Restore initialization and zoom constants |
 | Skull counts and indices | ✅ Fixed, P3 | Book also trusts bundled model | Focused parser checks |
-| Chapter 14 unused lights / stale attribution | Confirmed differences, P3 cleanup | Lights differ but shaders do not consume them | Optional constant, naming and comment cleanup |
+| Chapter 14 unused lights / stale attribution | ✅ Fixed, P3 | Shaders do not consume the light strengths | Constant, naming and comment cleanup |
 
-After the allocator fix, the recommended sequence is small demo parity fixes, shared
-shader/parser boundary checks, then optional cleanup. Keep individual demos reviewable and obtain the
-appropriate implementation go-ahead. Retain the per-demo structure and existing Odin idioms.
+The fixes preserve the per-demo structure and existing Odin idioms. Historical comparisons
+below describe the code before each fix; verification paragraphs describe the implemented result.
 
 ## P1: Graphics-memory pages can be recycled before the GPU is finished
 
@@ -93,7 +92,8 @@ WavesCS and Blur also passed rendering, resize and exit checks with **GPU-based 
 enabled**; its default remains off in the repository. The previously established callback,
 resource-state error and intentional-leak probes remain applicable to the unchanged diagnostic
 plumbing. Representative input checks covered orbit-camera changes, Blur's wireframe checkbox
-and Bezier's tessellation slider. Other documented visual/parity issues remain open.
+and Bezier's tessellation slider. Other documented visual/parity issues were still open at
+that stage; their fixes are recorded below.
 
 ## P2: Malformed DDS headers can overflow layout arithmetic
 
@@ -175,7 +175,7 @@ Affected code: `odin_port/common/d3d_util.odin`, `compile_shader`.
 If `IDxcCompiler3::Compile` itself returns a failing HRESULT, its `IResult` output may stay
 nil. Before the fix, the code registered `result->Release` and called `result->GetOutput` before
 passing the HRESULT to `hr_panic`, turning the failure into an access violation. The HRESULT
-returned by `IResult::GetStatus` is also ignored. The book's `Common/d3dUtil.cpp` contains
+returned by `IResult::GetStatus` was also ignored. The book's `Common/d3dUtil.cpp` contains
 the same method-failure/status-handling weaknesses: inherited defensive debt, rather than
 a difference in the successful compilation path.
 
@@ -270,7 +270,7 @@ the earlier CPU-waves demos. The matching `WavesCSApp.h` initializes them to `3.
 `gpu_waves_set_constants`, so the port starts with a materially faster and less damped
 simulation than the Chapter 13 reference.
 
-| Setting | Current Odin | Matching C++ |
+| Setting | Previous Odin | Matching C++ |
 | --- | ---: | ---: |
 | Wave speed | `8.0` | `3.5` |
 | Wave damping | `0.1` | `0.3` |
@@ -291,7 +291,7 @@ Affected code: `odin_port/C14_BasicTessellation/basic_tessellation_app.odin`.
 
 The initial camera values matched `BasicTessellationApp`, but the former copied zoom controls did not:
 
-| Setting | Current Odin | Matching C++ |
+| Setting | Previous Odin | Matching C++ |
 | --- | ---: | ---: |
 | Right-drag scale | `0.005` | `0.05` |
 | Radius clamp | `3.0 .. 25.0` | `5.0 .. 150.0` |
@@ -307,7 +307,7 @@ Odin and freshly built, unchanged C++ demos were compared at initial, zero/one-p
 and far views; their framing and wireframe tessellation agreed. Release/debug checks passed
 on `dev-2026-09-nightly:a2fb372`; the fixed demo survived six resizes and exited 0 through
 Escape with two expected id 1328 warnings and no unexpected debug or COM/Odin leak messages.
-Unused lights and copied attribution remain separate cleanup below.
+Unused lights and copied attribution were handled separately below.
 
 ## P2: BezierPatch uses the wrong camera and zoom controls
 
@@ -317,7 +317,7 @@ Affected code: `odin_port/C14_BezierPatch/bezier_patch_app.odin`.
 
 This file previously retained initialization and interaction values copied from another demo:
 
-| Setting | Current Odin | Matching C++ |
+| Setting | Previous Odin | Matching C++ |
 | --- | ---: | ---: |
 | Initial theta | `1.3 * PI` | `0.7 * PI` |
 | Initial phi | `0.25 * PI` | `0.42 * PI` |
@@ -340,18 +340,28 @@ id 1328 warnings and no unexpected debug or COM/Odin leak messages.
 
 ## P3: Chapter 14 unused lights and stale attribution
 
-Both Chapter 14 Odin demos use light strengths `{0.9, 0.8, 0.7}` and `{0.4, 0.4, 0.4}`;
-the corresponding C++ uses `{0.8, 0.75, 0.7}` and `{0.3, 0.3, 0.3}`. These differences are
-real, but the earlier claim that they alter shading is withdrawn: `PS` in both
-`Shaders/BasicTessellation.hlsl` and `Shaders/BezierTessellation.hlsl` returns constant white.
-There is no present visual defect or meaningful lighting comparison to run for these values.
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).**
 
-Optionally match the unused C++ values for reference fidelity. Both packages also retain
-`Crate_App` and `CrateApp` comments, including descriptions of crate geometry and zoom controls.
-Rename the application types and update attribution to the matching Chapter 14 sources in a
-later code-editing pass. Correct copied waves-index comments too: 128x128 vertices fit in
-16-bit indices; the port's 32-bit choice matches C++, but is not required by that vertex count.
-These are teaching improvements, not additional rendering defects.
+Both Chapter 14 Odin demos previously used light strengths `{0.9, 0.8, 0.7}` and
+`{0.4, 0.4, 0.4}`. They now match C++: `{0.8, 0.75, 0.7}` and `{0.3, 0.3, 0.3}`.
+The earlier claim that these differences altered shading is withdrawn: `PS` in both
+`Shaders/BasicTessellation.hlsl` and `Shaders/BezierTessellation.hlsl` returns constant white.
+Matching these unused values improves reference fidelity without changing the rendered lighting.
+
+Renamed `Crate_App` to `Basic_Tessellation_App` / `Bezier_Patch_App` and the geometry
+builder to `build_quad_patch_geometry`, matching the book's `BuildQuadPatchGeometry`.
+Corrected copied class, shader, geometry and camera comments. Five CPU-waves demos now
+explain that 128x128 vertices fit in 16-bit indices: their 32-bit choice matches C++ but is
+not required by that vertex count. These are teaching improvements, not rendering fixes.
+
+Verification on `dev-2026-09-nightly:a2fb372`: source comparison confirmed that executable
+changes were limited to the intended names and unused constants; the five waves edits
+changed comments only. `just validate` passed 52 release/debug checks and 37 tests.
+`just test-gpu` passed all 15 upload-retirement scenarios and the three loading-boundary
+tests. Both rebuilt Chapter 14 debug demos retained their pre-cleanup appearance, survived
+six resizes and exited 0 through Escape. Each emitted only two expected id 1328 warnings,
+with no unexpected debug or COM/Odin leak messages. Camera and slider behavior had also
+been compared with C++ in the preceding fixes; this cleanup did not change those paths.
 
 ## Validation evidence and remaining checks
 
@@ -369,8 +379,8 @@ WinGet PATH entry in Git Bash, and `just validate` itself passed**:
 - Linux AMD64 object build of `odin_port/dds` (historical check; subsequently removed from the workflow)
 
 At the user's request, the DDS Linux build recipe was removed after the P1 verification.
-`just validate` now covers Windows release/debug checks and math/DDS tests; cross-platform
-DDS builds are outside this project's validation scope. The parser remains separate from
+`just validate` now covers Windows release/debug checks, math/DDS tests and shared
+loading-boundary tests; cross-platform DDS builds are outside this project's validation scope. The parser remains separate from
 GPU upload code so malformed-input tests need no graphics device. After this cleanup,
 `just validate` passed all 52 checks and 29 tests, and `just test-gpu` passed all 15 scenarios
 again on `dev-2026-09-nightly:a2fb372` (2026-09-06 local date / 2026-09-07 UTC).
@@ -388,8 +398,9 @@ PATH entry. Discovery guidance belongs in `AGENTS.md`.
 
 All **19 apps built with `-debug`**, launched from the repository root, survived six window
 resizes, and exited **0 via Escape**. Each run has initial/later and post-resize captures.
-The underlying source baseline is commit `eb50a0b`; subsequent edits in this pass are
-documentation only. Tested hardware: **AMD Radeon RX 9070 XT**, driver **32.0.31041.1004**,
+The underlying source baseline was commit `eb50a0b`; that baseline pass changed only
+documentation. The later code fixes and their verification are recorded above. Tested
+hardware: **AMD Radeon RX 9070 XT**, driver **32.0.31041.1004**,
 Windows x64 at 150% display scaling. The pinned DXC runtime was `dxcompiler.dll` 1.6.2112.16
 with `dxil.dll` 101.6.2112.13. This is a baseline for this configuration, not a cross-driver
 or release-runtime certification.

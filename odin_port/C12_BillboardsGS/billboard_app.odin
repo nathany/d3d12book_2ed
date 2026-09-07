@@ -1109,8 +1109,9 @@ build_land_geometry :: proc(
 	return geo
 }
 
-// C++: TexWavesApp::BuildWaveGeometry — static 32-bit index buffer (128*128 > 0xffff
-// vertices); the vertex buffer stays nil and is pointed at the current frame resource's
+// C++: BillboardApp::BuildWaveGeometry — static 32-bit indices, matching the book.
+// 128*128 = 16384 vertices fit in 16 bits; this choice preserves reference behavior.
+// The vertex buffer stays nil and is pointed at the current frame resource's
 // dynamic VB every frame in update_waves.
 build_wave_geometry :: proc(
 	app: ^Billboard_App,

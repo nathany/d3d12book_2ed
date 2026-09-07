@@ -890,8 +890,9 @@ slider. These are patch lists, not ordinary triangle lists; the hull and domain 
 produce the surface triangles.
 
 Both examples use wireframe rasterization and pixel shaders returning constant white,
-making the generated triangles easy to see. Light-strength edits therefore have no effect
-on these shaders. Both demos use the book's **0.05-unit zoom scale** and **5–150 radius range**.
+making the generated triangles easy to see. The pass constants retain the book's light
+strengths, but light-strength edits have no effect on these shaders. Both demos use the
+book's **0.05-unit zoom scale** and **5–150 radius range**.
 BasicTessellation starts at radius 50; BezierPatch starts at radius 30 with theta `0.7 * PI`
 and phi `0.42 * PI`. The first right-drag should change the view smoothly, without a sudden snap.
 

@@ -46,7 +46,7 @@ Render_Item :: struct {
 	base_vertex_location:    i32,
 }
 
-Crate_App :: struct {
+Basic_Tessellation_App :: struct {
 	using base:                common.D3D_App,
 	cbv_srv_uav_heap:          common.Cbv_Srv_Uav_Heap,
 
@@ -93,9 +93,9 @@ Crate_App :: struct {
 main :: proc() {
 	context = common.mem_track_init() // Odin-side leak detection (debug builds); see common/mem_track.odin
 
-	app: Crate_App
+	app: Basic_Tessellation_App
 
-	// C++ member initializers (CrateApp.h) — a close-in camera for the single crate.
+	// C++ member initializers (BasicTessellationApp.h) — the initial view of the patch.
 	app.view = d3d_math.MAT4_IDENTITY
 	app.proj = d3d_math.MAT4_IDENTITY
 	app.theta = 1.3 * math.PI
@@ -115,7 +115,7 @@ main :: proc() {
 	app.on_mouse_up = on_mouse_up
 	app.on_mouse_move = on_mouse_move
 
-	// C++: CrateApp::Initialize().
+	// C++: BasicTessellationApp::Initialize().
 	common.d3d_app_init(&app.base)
 
 	// We will upload on the direct queue for the book samples, but
@@ -126,7 +126,7 @@ main :: proc() {
 	// C++: LoadTextures() — TextureLib::Init.
 	common.texture_lib_init(&app.tex_lib, &upload_batch)
 
-	shape_geo := build_shape_geometry(&app, &upload_batch)
+	shape_geo := build_quad_patch_geometry(&app, &upload_batch)
 	app.geometries[shape_geo.name] = shape_geo
 
 	// (C++ overlaps the upload with the rest of init via std::future; see C6_Box.)
@@ -166,9 +166,9 @@ main :: proc() {
 	os.exit(code)
 }
 
-// C++: CrateApp::OnResize.
+// C++: BasicTessellationApp::OnResize.
 on_resize :: proc(base: ^common.D3D_App) {
-	app := (^Crate_App)(base)
+	app := (^Basic_Tessellation_App)(base)
 
 	common.on_resize(base) // C++: D3DApp::OnResize();
 
@@ -181,9 +181,9 @@ on_resize :: proc(base: ^common.D3D_App) {
 	)
 }
 
-// C++: CrateApp::Update.
+// C++: BasicTessellationApp::Update.
 update :: proc(base: ^common.D3D_App) {
-	app := (^Crate_App)(base)
+	app := (^Basic_Tessellation_App)(base)
 
 	on_keyboard_input(app)
 	update_camera(app)
@@ -223,16 +223,16 @@ update :: proc(base: ^common.D3D_App) {
 	update_main_pass_cb(app)
 }
 
-// C++: CrateApp::OnKeyboardInput — empty in this demo.
-on_keyboard_input :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::OnKeyboardInput — empty in this demo.
+on_keyboard_input :: proc(app: ^Basic_Tessellation_App) {
 }
 
-// C++: CrateApp::AnimateMaterials — empty in this demo.
-animate_materials :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::AnimateMaterials — empty in this demo.
+animate_materials :: proc(app: ^Basic_Tessellation_App) {
 }
 
-// C++: CrateApp::UpdateCamera.
-update_camera :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::UpdateCamera.
+update_camera :: proc(app: ^Basic_Tessellation_App) {
 	// Convert Spherical to Cartesian coordinates.
 	app.eye_pos.x = app.radius * math.sin(app.phi) * math.cos(app.theta)
 	app.eye_pos.z = app.radius * math.sin(app.phi) * math.sin(app.theta)
@@ -245,8 +245,8 @@ update_camera :: proc(app: ^Crate_App) {
 	app.view = d3d_math.look_at_lh(pos, target, up)
 }
 
-// C++: CrateApp::UpdatePerObjectCB.
-update_per_object_cb :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::UpdatePerObjectCB.
+update_per_object_cb :: proc(app: ^Basic_Tessellation_App) {
 	// Update per object constants once per frame so the data can be shared across
 	// different render passes.
 	for ri in app.all_ritems {
@@ -263,9 +263,9 @@ update_per_object_cb :: proc(app: ^Crate_App) {
 	}
 }
 
-// C++: CrateApp::UpdateMaterialBuffer — the upload now carries the texture transform and
+// C++: BasicTessellationApp::UpdateMaterialBuffer — the upload carries the texture transform and
 // the bindless texture indices alongside the shading constants.
-update_material_buffer :: proc(app: ^Crate_App) {
+update_material_buffer :: proc(app: ^Basic_Tessellation_App) {
 	curr_material_buffer := &app.curr_frame_resource.material_buffer
 	for _, mat in app.mat_lib.materials {
 		// Only update the buffer data if the data has changed.  If the buffer
@@ -288,8 +288,8 @@ update_material_buffer :: proc(app: ^Crate_App) {
 	}
 }
 
-// C++: CrateApp::UpdateMainPassCB — identical to chapter 8's.
-update_main_pass_cb :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::UpdateMainPassCB — frame constants for the tessellation shaders.
+update_main_pass_cb :: proc(app: ^Basic_Tessellation_App) {
 	app.main_pass_cb = {} // C++: ZeroMemory(&mMainPassCB, sizeof(mMainPassCB));
 
 	view := app.view
@@ -321,17 +321,17 @@ update_main_pass_cb :: proc(app: ^Crate_App) {
 	cb.num_spot_lights = 0
 
 	cb.lights[0].direction = app.rotated_light_directions[0]
-	cb.lights[0].strength = {0.9, 0.8, 0.7}
+	cb.lights[0].strength = {0.8, 0.75, 0.7}
 	cb.lights[1].direction = app.rotated_light_directions[1]
-	cb.lights[1].strength = {0.4, 0.4, 0.4}
+	cb.lights[1].strength = {0.3, 0.3, 0.3}
 	cb.lights[2].direction = app.rotated_light_directions[2]
 	cb.lights[2].strength = {0.2, 0.2, 0.2}
 
 	common.copy_data(&app.curr_frame_resource.pass_cb, 0, app.main_pass_cb)
 }
 
-// C++: CrateApp::UpdateImgui — the "Options" panel.
-update_imgui :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::UpdateImgui — the "Options" panel.
+update_imgui :: proc(app: ^Basic_Tessellation_App) {
 	common.d3d_app_update_imgui_base() // C++: D3DApp::UpdateImgui(gt)
 
 	//
@@ -376,9 +376,9 @@ update_imgui :: proc(app: ^Crate_App) {
 	im.Render()
 }
 
-// C++: CrateApp::Draw — the sampler heap is bound alongside the CbvSrvUav heap now.
+// C++: BasicTessellationApp::Draw — bind the sampler and CbvSrvUav heaps.
 draw :: proc(base: ^common.D3D_App) {
-	app := (^Crate_App)(base)
+	app := (^Basic_Tessellation_App)(base)
 
 	update_imgui(app)
 
@@ -474,8 +474,8 @@ draw :: proc(base: ^common.D3D_App) {
 	base.command_queue->Signal(base.fence, base.current_fence)
 }
 
-// C++: CrateApp::DrawRenderItems.
-draw_render_items :: proc(app: ^Crate_App, ritems: []^Render_Item) {
+// C++: BasicTessellationApp::DrawRenderItems.
+draw_render_items :: proc(app: ^Basic_Tessellation_App, ritems: []^Render_Item) {
 	cmd_list := app.command_list
 
 	for ri in ritems {
@@ -500,9 +500,9 @@ draw_render_items :: proc(app: ^Crate_App, ritems: []^Render_Item) {
 	}
 }
 
-// C++: CrateApp::OnMouseDown — ImGui gets first claim on the mouse.
+// C++: BasicTessellationApp::OnMouseDown — ImGui gets first claim on the mouse.
 on_mouse_down :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
-	app := (^Crate_App)(base)
+	app := (^Basic_Tessellation_App)(base)
 	io := im.GetIO()
 	if !io.WantCaptureMouse {
 		app.last_mouse_pos = {x, y}
@@ -510,7 +510,7 @@ on_mouse_down :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 	}
 }
 
-// C++: CrateApp::OnMouseUp.
+// C++: BasicTessellationApp::OnMouseUp.
 on_mouse_up :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 	io := im.GetIO()
 	if !io.WantCaptureMouse {
@@ -518,9 +518,9 @@ on_mouse_up :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 	}
 }
 
-// C++: CrateApp::OnMouseMove — tighter radius clamp (3–25) for the single crate.
+// C++: BasicTessellationApp::OnMouseMove — orbit and zoom around the patch.
 on_mouse_move :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
-	app := (^Crate_App)(base)
+	app := (^Basic_Tessellation_App)(base)
 	io := im.GetIO()
 	if !io.WantCaptureMouse {
 		if btn_state & win.MK_LBUTTON != 0 {
@@ -528,7 +528,7 @@ on_mouse_move :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 			dx := math.to_radians(0.25 * f32(x - app.last_mouse_pos.x))
 			dy := math.to_radians(0.25 * f32(y - app.last_mouse_pos.y))
 
-			// Update angles based on input to orbit camera around box.
+			// Update angles based on input to orbit the camera around the patch.
 			app.theta += dx
 			app.phi += dy
 
@@ -550,10 +550,10 @@ on_mouse_move :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 	}
 }
 
-// C++: CrateApp::BuildCbvSrvUavDescriptorHeap — after ImGui claims its slot, every
+// C++: BasicTessellationApp::BuildCbvSrvUavDescriptorHeap — after ImGui claims its slot, every
 // texture gets a bindless index and an SRV at that index. The index IS what shaders use
 // (ResourceDescriptorHeap[i]), so it must be assigned before MaterialLib snapshots it.
-build_cbv_srv_uav_descriptor_heap :: proc(app: ^Crate_App) {
+build_cbv_srv_uav_descriptor_heap :: proc(app: ^Basic_Tessellation_App) {
 	common.cbv_srv_uav_heap_init(&app.cbv_srv_uav_heap, app.device, CBV_SRV_UAV_HEAP_CAPACITY)
 	common.d3d_app_init_imgui(&app.base, &app.cbv_srv_uav_heap)
 
@@ -571,10 +571,10 @@ build_cbv_srv_uav_descriptor_heap :: proc(app: ^Crate_App) {
 	}
 }
 
-// C++: CrateApp::BuildRootSignature — same three parameters as chapter 8, plus the two
+// C++: BasicTessellationApp::BuildRootSignature — object/pass CBVs, a material SRV, and the two
 // SM 6.6 "directly indexed" flags that let shaders use ResourceDescriptorHeap[] and
 // SamplerDescriptorHeap[].
-build_root_signature :: proc(app: ^Crate_App) {
+build_root_signature :: proc(app: ^Basic_Tessellation_App) {
 	// Root parameter can be a table, root descriptor or root constants.
 	gfx_root_parameters: [Gfx_Root_Arg]d3d12.ROOT_PARAMETER
 
@@ -629,8 +629,8 @@ build_root_signature :: proc(app: ^Crate_App) {
 	)
 }
 
-// C++: CrateApp::BuildShadersAndInputLayout — BasicTex.hlsl.
-build_shaders_and_input_layout :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::BuildShadersAndInputLayout — BasicTessellation.hlsl.
+build_shaders_and_input_layout :: proc(app: ^Basic_Tessellation_App) {
 	// C++: COMMA_DEBUG_ARGS — DXC_ARG_DEBUG, DXC_ARG_SKIP_OPTIMIZATIONS in debug builds.
 	when ODIN_DEBUG {
 		vs_args := [?]string{"-E", "VS", "-T", "vs_6_6", dxc.ARG_DEBUG, dxc.ARG_SKIP_OPTIMIZATIONS}
@@ -654,8 +654,8 @@ build_shaders_and_input_layout :: proc(app: ^Crate_App) {
 	}
 }
 
-// C++: CrateApp::BuildPSOs.
-build_psos :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::BuildPSOs.
+build_psos :: proc(app: ^Basic_Tessellation_App) {
 	base_pso_desc := common.init_default_pso(
 		app.back_buffer_format,
 		app.depth_stencil_format,
@@ -681,22 +681,22 @@ build_psos :: proc(app: ^Crate_App) {
 	app.psos["opaque_tess"] = opaque_tess
 }
 
-// C++: CrateApp::BuildFrameResources.
-build_frame_resources :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::BuildFrameResources.
+build_frame_resources :: proc(app: ^Basic_Tessellation_App) {
 	pass_count :: 1
 	for &fr in app.frame_resources {
 		frame_resource_init(&fr, app.device, pass_count, common.material_count(&app.mat_lib))
 	}
 }
 
-// C++: CrateApp::BuildMaterials — MaterialLib::GetLib().Init(...).
-build_materials :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::BuildMaterials — MaterialLib::GetLib().Init(...).
+build_materials :: proc(app: ^Basic_Tessellation_App) {
 	common.material_lib_init(&app.mat_lib, &app.tex_lib)
 }
 
-// C++: CrateApp::AddRenderItem — gains the texTransform parameter this chapter.
+// C++: BasicTessellationApp::AddRenderItem — record the patch transform and material.
 add_render_item :: proc(
-	app: ^Crate_App,
+	app: ^Basic_Tessellation_App,
 	layer: Render_Layer,
 	world: d3d_math.Mat4,
 	tex_transform: d3d_math.Mat4,
@@ -718,8 +718,8 @@ add_render_item :: proc(
 	append(&app.all_ritems, ritem)
 }
 
-// C++: CrateApp::BuildRenderItems — one crate.
-build_render_items :: proc(app: ^Crate_App) {
+// C++: BasicTessellationApp::BuildRenderItems — one four-control-point quad patch.
+build_render_items :: proc(app: ^Basic_Tessellation_App) {
 	geo := app.geometries["shapeGeo"]
 
 	add_render_item(
@@ -734,9 +734,9 @@ build_render_items :: proc(app: ^Crate_App) {
 	app.all_ritems[len(app.all_ritems) - 1].primitive_type = ._4_CONTROL_POINT_PATCHLIST
 }
 
-// C++: CrateApp::BuildShapeGeometry — just the box in this demo.
-build_shape_geometry :: proc(
-	app: ^Crate_App,
+// C++: BasicTessellationApp::BuildQuadPatchGeometry — four-control-point quad patch.
+build_quad_patch_geometry :: proc(
+	app: ^Basic_Tessellation_App,
 	upload_batch: ^common.Resource_Upload_Batch,
 ) -> ^common.Mesh_Geometry {
 	vertices := [4][3]f32 {
