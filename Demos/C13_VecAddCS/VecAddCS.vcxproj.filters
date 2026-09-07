@@ -222,6 +222,12 @@
     <ClCompile Include="..\..\Common\TextureLib.cpp">
       <Filter>Common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Common\LoadM3d.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\SkinnedData.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
     <ClCompile Include="FrameResource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -417,6 +423,12 @@
       <Filter>Common</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Common\TextureLib.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\LoadM3d.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\SkinnedData.h">
       <Filter>Common</Filter>
     </ClInclude>
     <ClInclude Include="FrameResource.h">

@@ -158,6 +158,7 @@
     <ClCompile Include="..\..\Common\d3dUtil.cpp" />
     <ClCompile Include="..\..\Common\GameTimer.cpp" />
     <ClCompile Include="..\..\Common\DescriptorUtil.cpp" />
+    <ClCompile Include="..\..\Common\LoadM3d.cpp" />
     <ClCompile Include="..\..\Common\MaterialLib.cpp" />
     <ClCompile Include="..\..\Common\MeshGen.cpp" />
     <ClCompile Include="..\..\Common\MathHelper.cpp" />
@@ -165,6 +166,7 @@
     <ClCompile Include="..\..\Common\PsoLib.cpp" />
     <ClCompile Include="..\..\Common\Random.cpp" />
     <ClCompile Include="..\..\Common\ShaderLib.cpp" />
+    <ClCompile Include="..\..\Common\SkinnedData.cpp" />
     <ClCompile Include="..\..\Common\TextureLib.cpp" />
     <ClCompile Include="..\..\External\DirectXTK12\Src\AlphaTestEffect.cpp" />
     <ClCompile Include="..\..\External\DirectXTK12\Src\BasicEffect.cpp" />
@@ -223,6 +225,7 @@
     <ClInclude Include="..\..\Common\d3dUtil.h" />
     <ClInclude Include="..\..\Common\d3dx12.h" />
     <ClInclude Include="..\..\Common\GameTimer.h" />
+    <ClInclude Include="..\..\Common\LoadM3d.h" />
     <ClInclude Include="..\..\Common\DescriptorUtil.h" />
     <ClInclude Include="..\..\Common\MaterialLib.h" />
     <ClInclude Include="..\..\Common\MeshGen.h" />
@@ -232,6 +235,7 @@
     <ClInclude Include="..\..\Common\PsoLib.h" />
     <ClInclude Include="..\..\Common\Random.h" />
     <ClInclude Include="..\..\Common\ShaderLib.h" />
+    <ClInclude Include="..\..\Common\SkinnedData.h" />
     <ClInclude Include="..\..\Common\TextureLib.h" />
     <ClInclude Include="..\..\Common\UploadBuffer.h" />
     <ClInclude Include="..\..\External\DirectXTK12\Inc\Audio.h" />
