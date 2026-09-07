@@ -134,6 +134,7 @@ just run C7_Waves          # -debug gates ODIN_DEBUG: D3D12 debug layer,
                            # Odin tracking allocator
 just test C2_XMMATRIX      # ch 1-3 are math-only, ported as tests
 just test dds              # DDS parser tests (integration half needs repo root)
+just test-upload           # DDS upload-limit tests; no graphics device required
 just test-gpu              # opt-in GPU upload-retirement regression; requires D3D12 + debug layer
 just check C7_Waves        # release and debug type checks
 just build-asan C7_Waves   # sanitizer build in the session temp directory
@@ -165,6 +166,10 @@ The one exception is `format_dxgi_test.odin`, gated with `#+build windows`.
 Standard-library helpers, including `base:intrinsics` for checked arithmetic, are
 allowed; preserve the package's lack of a graphics device, platform API and fatal-I/O policy.
 Validation targets this Windows DX12 project; cross-platform DDS builds are not required.
+`just validate` includes `test-upload`. DDS arithmetic regressions use `mem.panic_allocator`
+to prove rejection before allocation; run DDS and upload tests with `-debug -sanitize:address`
+when changing their memory/indexing paths. `dds.layout_size` validates metadata and bounds;
+`subresource_count` only widens the product and must not substitute for that validation.
 
 `dxcompiler.dll` and `dxil.dll` are copied to the repo root (gitignored) to pin vendor DXC
 1.6.2112 ahead of the Vulkan SDK's copy on PATH — never invoke a bare `dxc`. Copy steps are in
@@ -198,6 +203,9 @@ keep new repeatable commands in the root Justfile and prefer Git Bash-compatible
   scale an unaware process gets DPI-virtualized `GetWindowRect` coordinates, so `CopyFromScreen`
   crops the window — a centered box looks off-center and you go hunting a rendering bug that was
   never there. `PrintWindow` with `PW_RENDERFULLCONTENT` additionally captures overlapped windows.
+- For an unobscured visual comparison, use direct screen capture without first calling
+  `PrintWindow` and discarding its result. Investigate an incomplete snapshot with repeated
+  direct captures of both baseline and changed executables before assigning a render regression.
 - **ImGui clicks need a real cursor** (`SetCursorPos` + `mouse_event`, saving and restoring the
   user's position), because the win32 backend re-reads `GetCursorPos` every focused frame and
   overwrites posted mouse positions. Call `SetForegroundWindow` first, or the click lands in

@@ -8,9 +8,8 @@
 //   CreateDDSTextureFromFile -> the above, then create + upload the texture -> here
 //
 // Ours splits harder than theirs: DirectXTK12's Load* still takes an ID3D12Device
-// because it creates the resource, whereas `dds` is pure — no device, no D3D12 types
-// beyond `dxgi.FORMAT`. That is what lets the parser be unit-tested without a GPU
-// (`odin test odin_port/dds`); everything below is the part that can't be.
+// because it creates the resource, whereas `dds` is pure — no device or graphics API
+// types. The parser and the upload-limit checks can be unit-tested without a GPU.
 package common
 
 import "core:fmt"
@@ -19,6 +18,18 @@ import "core:os"
 import d3d12 "vendor:directx/d3d12"
 import dxgi "vendor:directx/dxgi"
 import "../dds"
+
+// C++: CreateTextureFromDDS bounds metadata against D3D12_REQ_* before resource creation.
+// Odin: keep API limits here; the parser owns file-format and arithmetic validation.
+@(private)
+dds_texture_supported :: proc(info: dds.Texture_Info) -> bool {
+	if _, err := dds.layout_size(info); err != .None {return false}
+	dimension_limit: u32 = info.is_cube_map ? d3d12.REQ_TEXTURECUBE_DIMENSION : d3d12.REQ_TEXTURE2D_U_OR_V_DIMENSION
+	return info.width <= dimension_limit && info.height <= dimension_limit &&
+		info.array_size <= d3d12.REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION &&
+		info.mip_levels <= d3d12.REQ_MIP_LEVELS &&
+		dds.subresource_count(info) <= d3d12.REQ_SUBRESOURCES
+}
 
 // C++: DirectX::CreateDDSTextureFromFileEx(device, uploadBatch, filename, ...).
 //
@@ -44,9 +55,21 @@ create_dds_texture :: proc(
 	}
 	defer delete(data)
 
-	info, subresources, err := dds.parse(data, context.temp_allocator)
+	info, err := dds.parse_info(data)
 	if err != .None {
 		report_error(dds_error_message(filename, info, err))
+		os.exit(1)
+	}
+	// Validate before narrowing to u16 or allocating per-subresource upload metadata.
+	// With this format subset (at most 128 bits/texel) and the 16384-texel axis limit,
+	// even an aligned row pitch is at most 262144 bytes, safely within D3D12's u32 pitch.
+	if !dds_texture_supported(info) {
+		report_error(fmt.tprintf("%s: DDS dimensions, array or mip count exceed D3D12 limits", filename))
+		os.exit(1)
+	}
+	_, subresources, parse_err := dds.parse(data, context.temp_allocator)
+	if parse_err != .None {
+		report_error(dds_error_message(filename, info, parse_err))
 		os.exit(1)
 	}
 
@@ -61,7 +84,7 @@ create_dds_texture :: proc(
 		MipLevels = u16(info.mip_levels),
 		// `dds.Format` is DXGI-numbered on purpose — the DDS DX10 header stores raw
 		// DXGI_FORMAT values — so this is a plain cast, not a lookup. The dds package
-		// deliberately doesn't import dxgi (it has to build on non-Windows), and
+		// keeps file parsing separate from graphics API types, and
 		// dds/format_dxgi_test.odin asserts the two enums agree value for value.
 		Format = dxgi.FORMAT(info.format),
 		SampleDesc = {Count = 1, Quality = 0},
@@ -102,6 +125,12 @@ create_dds_texture :: proc(
 		raw_data(row_sizes),
 		&total_bytes,
 	)
+	// GetCopyableFootprints has no HRESULT; an invalid description returns UINT64_MAX.
+	// Check before creating/mapping a buffer or converting offsets to CPU-sized integers.
+	if total_bytes == 0 || total_bytes > u64(max(int)) {
+		report_error(fmt.tprintf("%s: DDS upload footprints exceed addressable memory", filename))
+		os.exit(1)
+	}
 
 	// The upload-heap intermediate the CPU fills.
 	upload: ^d3d12.IResource

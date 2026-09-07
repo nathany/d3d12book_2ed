@@ -40,6 +40,10 @@ check-all:
 test-all:
     set -e; for package in {{test_packages}}; do odin test "odin_port/$package"; done
 
+# Test DDS upload limits without creating a graphics device.
+test-upload:
+    odin test odin_port/common -strict-style -warnings-as-errors
+
 # Opt-in D3D12 upload-lifetime regression; requires Windows Graphics Tools and a D3D12 device.
 test-gpu:
     odin test odin_port/common -debug -strict-style -warnings-as-errors -define:GRAPHICS_MEMORY_GPU_TESTS=true -define:ODIN_TEST_THREADS=1
@@ -53,4 +57,4 @@ run-asan example:
     odin run "odin_port/{{example}}" -debug -sanitize:address
 
 # Run the full non-interactive validation suite.
-validate: check-all test-all
+validate: check-all test-all test-upload

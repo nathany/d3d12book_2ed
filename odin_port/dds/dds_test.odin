@@ -8,6 +8,148 @@ package dds
 import "core:mem"
 import "core:testing"
 
+@(test)
+test_layout_arithmetic_regressions :: proc(t: ^testing.T) {
+	// Previously width*bpp wrapped to zero before division by eight.
+	n, row, _, ok := surface_info(0x08000000, 1, .R8G8B8A8_UNORM)
+	testing.expect(t, ok)
+	testing.expect_value(t, row, u32(0x20000000))
+	testing.expect_value(t, n, u32(0x20000000))
+	for format in ([?]Format{.BC1_UNORM, .BC7_UNORM, .R32G32B32A32_FLOAT}) {
+		_, _, _, valid := surface_info(max(u32), max(u32), format)
+		testing.expectf(t, !valid, "%v: oversized surface must fail", format)
+	}
+	// Header-only checks avoid asking the unfixed parser to allocate attacker counts.
+	for array_size in ([?]u32{0, 0x80000000}) {
+		buf := make_dds_dx10(2, 2, 2, .R8G8B8A8_UNORM, array_size,
+			payload_bytes = 4, allocator = context.temp_allocator)
+		_, err := parse_info(buf)
+		expected := array_size == 0 ? Error.Invalid_Layout : Error.Size_Overflow
+		testing.expect_value(t, err, expected)
+	}
+	buf := make_dds_dx10(4, 4, 1, .BC1_UNORM, 0x80000000,
+		misc_flag = RESOURCE_MISC_TEXTURECUBE, allocator = context.temp_allocator)
+	_, err := parse_info(buf)
+	testing.expectf(t, err != .None, "cube-face expansion wrapped")
+}
+
+@(test)
+test_layout_boundaries :: proc(t: ^testing.T) {
+	// A surface at the u32 boundary is representable; its header/array may not be.
+	n, row, rows, ok := surface_info(max(u32), 1, .R8_UNORM)
+	testing.expect(t, ok)
+	testing.expect_value(t, n, max(u32))
+	testing.expect_value(t, row, max(u32))
+	testing.expect_value(t, rows, u32(1))
+	_, _, _, ok = surface_info(max(u32), 2, .R8_UNORM)
+	testing.expect(t, !ok)
+	_, _, _, ok = surface_info(0, 1, .BC1_UNORM)
+	testing.expect(t, !ok)
+	_, _, _, ok = surface_info(1, 0, .R8_UNORM)
+	testing.expect(t, !ok)
+	// BC rounding must add three in u64, even when its final pitch fits u32.
+	n, row, rows, ok = surface_info(0x7ffffffc, 1, .BC1_UNORM)
+	testing.expect(t, ok)
+	testing.expect_value(t, n, u32(0xfffffff8))
+	testing.expect_value(t, row, n)
+	testing.expect_value(t, rows, u32(1))
+	testing.expect_value(t, subresource_count({array_size = max(u32), mip_levels = max(u32)}),
+		u64(0xfffffffe00000001))
+
+	// Exercise offsets and whole-array accumulation without allocating multi-GB files.
+	info := Texture_Info{width = 1, height = 1, mip_levels = 1, array_size = 1,
+		format = .R8_UNORM, data_offset = max(u32) - 1}
+	size, err := layout_size(info)
+	testing.expect_value(t, err, Error.None)
+	testing.expect_value(t, size, max(u32))
+	info.data_offset = max(u32)
+	_, err = layout_size(info)
+	testing.expect_value(t, err, Error.Size_Overflow)
+}
+
+@(test)
+test_layout_rejects_caller_metadata :: proc(t: ^testing.T) {
+	invalid := [?]Texture_Info{
+		{width = 0, height = 4, mip_levels = 1, array_size = 1, format = .BC1_UNORM},
+		{width = 4, height = 0, mip_levels = 1, array_size = 1, format = .BC1_UNORM},
+		{width = 4, height = 4, mip_levels = 0, array_size = 1, format = .BC1_UNORM},
+		{width = 4, height = 4, mip_levels = 1, array_size = 0, format = .BC1_UNORM},
+		{width = 4, height = 4, mip_levels = 4, array_size = 1, format = .BC1_UNORM},
+		{width = 4, height = 2, mip_levels = 1, array_size = 6, format = .BC1_UNORM, is_cube_map = true},
+		{width = 4, height = 4, mip_levels = 1, array_size = 7, format = .BC1_UNORM, is_cube_map = true},
+	}
+	for info in invalid {
+		_, err := layout_size(info)
+		testing.expect_value(t, err, Error.Invalid_Layout)
+		testing.expect_value(t, parse_subresources(info, nil, nil), Error.Invalid_Layout)
+	}
+	overflow := [?]Texture_Info{
+		// Valid mip chain, overflowing subresource count.
+		{width = 2, height = 2, mip_levels = 2, array_size = 0x80000000, format = .R8_UNORM},
+		// Each surface fits, but the array or mip sum does not.
+		{width = 0x80000000, height = 1, mip_levels = 1, array_size = 2, format = .R8_UNORM},
+		{width = max(u32), height = 1, mip_levels = 2, array_size = 1, format = .R8_UNORM},
+		{width = 1, height = 1, mip_levels = 1, array_size = 1, format = .R8_UNORM, data_offset = max(u32)},
+		// Would overflow u64 too if pitch*height were evaluated before bounding pitch.
+		{width = max(u32), height = max(u32), mip_levels = 1, array_size = 1, format = .R32G32B32A32_FLOAT},
+	}
+	for info in overflow {
+		_, err := layout_size(info)
+		testing.expect_value(t, err, Error.Size_Overflow)
+		testing.expect_value(t, parse_subresources(info, nil, nil), Error.Size_Overflow)
+	}
+}
+
+@(test)
+test_parse_rejects_before_allocation :: proc(t: ^testing.T) {
+	// panic_allocator proves metadata/truncation rejection happens before allocation.
+	for array_size in ([?]u32{0, 0x80000000}) {
+		buf := make_dds_dx10(2, 2, 2, .R8G8B8A8_UNORM, array_size,
+			payload_bytes = 4, allocator = context.temp_allocator)
+		_, subs, err := parse(buf, mem.panic_allocator())
+		expected := array_size == 0 ? Error.Invalid_Layout : Error.Size_Overflow
+		testing.expect_value(t, err, expected)
+		testing.expect(t, subs == nil)
+	}
+	// The originally reported 1x1/two-mip panic is rejected as an impossible mip chain.
+	original := make_dds_dx10(1, 1, 2, .R8G8B8A8_UNORM, 0x80000000,
+		payload_bytes = 4, allocator = context.temp_allocator)
+	_, _, original_err := parse(original, mem.panic_allocator())
+	testing.expect_value(t, original_err, Error.Invalid_Layout)
+	// Legal count but tiny payload: do not allocate billions of descriptors.
+	buf := make_dds_dx10(1, 1, 1, .R8_UNORM, 0x80000000,
+		payload_bytes = 1, allocator = context.temp_allocator)
+	_, subs, err := parse(buf, mem.panic_allocator())
+	testing.expect_value(t, err, Error.Data_Truncated)
+	testing.expect(t, subs == nil)
+	// Zero dimensions and cube expansion also fail through the allocating entry point.
+	zero := make_dds(0, 4, 1, pf_four_cc("DXT1"), allocator = context.temp_allocator)
+	_, _, err = parse(zero, mem.panic_allocator())
+	testing.expect_value(t, err, Error.Invalid_Layout)
+	cube := make_dds_dx10(4, 4, 1, .BC1_UNORM, 0x80000000,
+		misc_flag = RESOURCE_MISC_TEXTURECUBE, allocator = context.temp_allocator)
+	_, _, err = parse(cube, mem.panic_allocator())
+	testing.expect_value(t, err, Error.Size_Overflow)
+}
+
+@(test)
+test_parse_destination_and_allocator_failure :: proc(t: ^testing.T) {
+	buf := make_dds(4, 4, 1, pf_four_cc("DXT1"), payload_bytes = 8, allocator = context.temp_allocator)
+	info, err := parse_info(buf)
+	testing.expect_value(t, err, Error.None)
+	testing.expect_value(t, parse_subresources(info, buf, nil), Error.Destination_Too_Small)
+	_, subs, alloc_err := parse(buf, mem.nil_allocator())
+	testing.expect_value(t, alloc_err, Error.Out_Of_Memory)
+	testing.expect(t, subs == nil)
+	// Exact-size success and a one-byte truncation exercise the same preflight bound.
+	_, subs, err = parse(buf)
+	defer delete(subs)
+	testing.expect_value(t, err, Error.None)
+	testing.expect_value(t, len(subs), 1)
+	_, _, err = parse(buf[:len(buf)-1], mem.panic_allocator())
+	testing.expect_value(t, err, Error.Data_Truncated)
+}
+
 // ---------------------------------------------------------------------------
 // Fixture builders
 // ---------------------------------------------------------------------------
@@ -254,7 +396,7 @@ test_parse_mip_count_zero_means_one :: proc(t: ^testing.T) {
 	info, err := parse_info(buf)
 	testing.expect_value(t, err, Error.None)
 	testing.expect_value(t, info.mip_levels, u32(1))
-	testing.expect_value(t, subresource_count(info), u32(1))
+	testing.expect_value(t, subresource_count(info), u64(1))
 }
 
 @(test)
@@ -271,7 +413,7 @@ test_parse_cube_map :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, Error.None)
 	testing.expect(t, info.is_cube_map)
 	testing.expect_value(t, info.array_size, u32(6))
-	testing.expect_value(t, subresource_count(info), u32(6))
+	testing.expect_value(t, subresource_count(info), u64(6))
 
 	// Missing faces must be rejected, not silently treated as a full cube.
 	partial := make_dds(

@@ -28,12 +28,13 @@ just --list                       # show the available workflows
 just examples                     # list every runnable demo
 just test C1_XMVECTOR             # chapters 1–3 are math-only tests
 just test dds                     # synthetic and repository DDS parser tests
+just test-upload                  # DDS upload-limit tests, no graphics device required
 just run APPENDIX_A
 just run C7_Waves                 # debug layer, stderr validation, COM leak report,
                                   # and Odin tracking allocator (common/mem_track.odin)
 just check C7_Waves               # release and debug type checks
 just build-asan C13_VecAddCS      # sanitizer build goes to the session temp directory
-just validate                     # all Windows type checks and math/DDS tests
+just validate                     # all Windows type checks, math/DDS and upload-limit tests
 just test-gpu                     # additional opt-in D3D12 upload-lifetime regression
 ```
 

@@ -730,10 +730,12 @@ raw `DXGI_FORMAT` integer. This keeps the file-format vocabulary in the parser a
 graphics API types in the upload layer. At that boundary, `dxgi.FORMAT(f)` is a plain cast;
 there is no format translation table to follow while learning texture uploads.
 
-The current parser handles the bundled assets, but still has known malformed-input
-arithmetic gaps. See [the issue ledger](KNOWN_ISSUES.md) before reusing it with external
-files. Keeping parsing separate makes those boundary checks possible without changing
-the chapter's texture-binding lesson.
+**Validate the layout before allocating it.** DDS dimensions and counts come from the file.
+Widen them before multiplication, check the full mip/array size against the available bytes,
+and only then allocate the subresource list. The port retains DirectXTK12's 32-bit file-size
+limit and returns an error when a layout cannot fit. D3D12 dimension and array limits are
+checked separately in the upload layer, before narrowing counts into the resource description.
+Keeping these checks at the loading boundary leaves the chapter's texture-binding lesson intact.
 
 **Then the bindless plumbing**, which is the chapter's actual lesson:
 

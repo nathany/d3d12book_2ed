@@ -82,6 +82,9 @@ block_bytes :: proc(format: Format) -> u32 {
 // `row_bytes` is the TIGHT pitch as stored in the file — not D3D12's 256-byte-aligned
 // upload pitch. Block-compressed formats round each dimension up to whole 4x4 blocks, so
 // a 1x1 BC1 mip still occupies one full 8-byte block.
+// Odin: retain u32 layout fields, but widen BEFORE arithmetic and reject unrepresentable
+// results (DirectXTK12's FillInitData likewise rejects surfaces/pitches above UINT32_MAX).
+// `ok` is false for zero dimensions, unsupported formats, or oversized surfaces.
 surface_info :: proc(
 	width, height: u32,
 	format: Format,
@@ -89,25 +92,22 @@ surface_info :: proc(
 	num_bytes, row_bytes, num_rows: u32,
 	ok: bool,
 ) {
-	if is_compressed(format) {
-		bpe := block_bytes(format)
-		num_blocks_wide := width == 0 ? 0 : max(u32(1), (width + 3) / 4)
-		num_blocks_high := height == 0 ? 0 : max(u32(1), (height + 3) / 4)
-		row_bytes = num_blocks_wide * bpe
-		num_rows = num_blocks_high
-		num_bytes = row_bytes * num_blocks_high
-		return num_bytes, row_bytes, num_rows, true
-	}
-
 	bpp := bits_per_pixel(format)
-	if bpp == 0 {
+	if width == 0 || height == 0 || bpp == 0 {
 		return 0, 0, 0, false
 	}
 
-	row_bytes = (width * bpp + 7) / 8 // round up to nearest byte
-	num_rows = height
-	num_bytes = row_bytes * height
-	return num_bytes, row_bytes, num_rows, true
+	row := (u64(width) * u64(bpp) + 7) / 8
+	rows := u64(height)
+	if is_compressed(format) {
+		row = ((u64(width) + 3) / 4) * u64(block_bytes(format))
+		rows = (u64(height) + 3) / 4
+	}
+	// Bound row before multiplying: two u32-sized operands cannot overflow u64.
+	if row > u64(max(u32)) || row * rows > u64(max(u32)) {
+		return 0, 0, 0, false
+	}
+	return u32(row * rows), u32(row), u32(rows), true
 }
 
 // The DDS_PIXELFORMAT block of the header (`DDS.h`), exposed because a failed format

@@ -30,6 +30,25 @@ Errors are **returned, not fatal**. The demos' fail-fast convention (`report_err
 exit) belongs to the caller — a parser that tests feed malformed input to can't be the thing
 that decides to kill the process.
 
+## Layout validation
+
+The parser keeps `u32` offsets and pitches, with a **UINT32_MAX-byte file/layout limit**,
+matching DirectXTK12's file-size and surface-size bounds. It widens operands before doing
+arithmetic, then checks the result before narrowing. It rejects zero dimensions and DX10
+arrays, overflowing cube-face counts, nonsquare/incomplete cubes, and mip chains longer
+than the dimensions permit. A stored mip count of zero still means one level.
+
+`parse_info` validates the header and the representability of its complete layout without
+reading payload. `layout_size(info)` also validates caller-constructed metadata and returns
+the required file size, including `data_offset`. `subresource_count(info)` returns a `u64`
+product; it does not validate metadata by itself. Both `parse` and `parse_subresources`
+check payload length before allocation or writing entries. A short destination returns
+`Destination_Too_Small`; allocation failure returns `Out_Of_Memory`.
+
+D3D12 dimension, array and mip limits belong in `common/texture_upload.odin`, before the
+resource description narrows counts to `u16`. The format subset and resource limits also
+bound upload row pitches. This keeps file-format rules separate from graphics-device rules.
+
 ## No graphics API required
 
 The parser imports only `core:mem`. Keeping file-format parsing separate from resource
@@ -120,6 +139,12 @@ a bad array count, or an off-by-one in the mip chain. All 100 book files pass, 4
 end-to-end proof that the bits land where the sampler expects them.
 
 Plus the enum cross-check above: all 51 `Format` members against `vendor:directx/dxgi`.
+
+**4. Malformed-input boundaries.** The arithmetic regressions cover row/surface overflow,
+cube expansion, subresource counts, mip/array sums, final offsets, truncation and allocation
+failure. A panic allocator proves invalid/truncated files are rejected before allocation.
+Run `just test dds` for these and the bundled-file tests, and `just test-upload` for the
+D3D12 metadata limits. Neither command creates a graphics device; both run in `just validate`.
 
 ## Layout notes worth knowing
 

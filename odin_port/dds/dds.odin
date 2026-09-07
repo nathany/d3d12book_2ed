@@ -1,4 +1,6 @@
 // A DDS file parser — pure, no Direct3D device, no GPU, no I/O policy.
+// PROVENANCE: DirectXTK12 Src/DDSTextureLoader.cpp and Src/LoaderHelpers.h (MIT license,
+// https://github.com/microsoft/DirectXTK12), reduced to the formats used by this port.
 //
 // This is the "load" half of DirectXTK12's DDSTextureLoader split (see README.md):
 // `parse` turns DDS bytes into a `Texture_Info` plus the per-subresource layout, and the
@@ -25,6 +27,10 @@ Error :: enum {
 	Unsupported_Dimension, // 1D/3D/volume textures
 	Partial_Cube_Map, //      cubemap missing some of its six faces
 	Data_Truncated, //        header describes more surface bytes than the file holds
+	Invalid_Layout, //        zero dimensions/array, impossible mip chain, or invalid cube
+	Size_Overflow, //         layout or allocation cannot fit the parser's size fields
+	Destination_Too_Small, // caller-provided subresource slice is too short
+	Out_Of_Memory, //         subresource allocation failed
 }
 
 // dwCaps2 cubemap bits (`DDS.h`).
@@ -100,9 +106,13 @@ Subresource :: struct {
 }
 
 // C++: LoaderHelpers::LoadTextureDataFromMemory + the header validation at the top of
-// CreateDDSTextureFromMemoryEx, fused. Reads the header only — no surface walking, no
-// allocation.
+// CreateDDSTextureFromMemoryEx, fused. Reads the header and validates its implied layout
+// without reading payload or allocating.
 parse_info :: proc(data: []byte) -> (info: Texture_Info, err: Error) {
+	// C++: LoadTextureDataFromMemory rejects ddsDataSize > UINT32_MAX.
+	if u64(len(data)) > u64(max(u32)) {
+		return {}, .Size_Overflow
+	}
 	if len(data) < size_of(u32) + size_of(Header) {
 		return {}, .Too_Small
 	}
@@ -144,10 +154,14 @@ parse_info :: proc(data: []byte) -> (info: Texture_Info, err: Error) {
 		info.data_offset += size_of(Header_Dxt10)
 
 		info.format = Format(dx10.dxgi_format)
-		info.array_size = max(u32(1), dx10.array_size)
+		info.array_size = dx10.array_size
 		if dx10.misc_flag & RESOURCE_MISC_TEXTURECUBE != 0 {
 			info.is_cube_map = true
-			info.array_size *= 6
+			faces := u64(info.array_size) * 6
+			if faces > u64(max(u32)) {
+				return info, .Size_Overflow
+			}
+			info.array_size = u32(faces)
 		}
 		if dx10.resource_dimension != RESOURCE_DIMENSION_TEXTURE2D {
 			return info, .Unsupported_Dimension
@@ -165,16 +179,69 @@ parse_info :: proc(data: []byte) -> (info: Texture_Info, err: Error) {
 		}
 	}
 
-	if info.format == .UNKNOWN || bits_per_pixel(info.format) == 0 {
-		return info, .Unsupported_Format
-	}
-
-	return info, .None
+	_, err = layout_size(info)
+	return info, err
 }
 
-// Number of surfaces the file contains — D3D12's subresource count for this resource.
-subresource_count :: proc(info: Texture_Info) -> u32 {
-	return info.array_size * info.mip_levels
+// Widen before multiplying, even for caller-constructed metadata. This is a count only;
+// layout_size validates the metadata and allocation bounds before callers allocate.
+subresource_count :: proc(info: Texture_Info) -> u64 {
+	return u64(info.array_size) * u64(info.mip_levels)
+}
+
+// Validate without allocating or reading payload. Return the required file size,
+// including data_offset. Odin: bound the entire layout before walking array slices;
+// a tiny malicious file must not trigger a huge allocation or billions of iterations.
+// The u32 file/surface limit matches DirectXTK12's LoadTextureDataFromMemory/FillInitData.
+layout_size :: proc(info: Texture_Info) -> (size: u32, err: Error) {
+	if bits_per_pixel(info.format) == 0 {
+		return 0, .Unsupported_Format
+	}
+	if info.width == 0 || info.height == 0 || info.array_size == 0 || info.mip_levels == 0 {
+		return 0, .Invalid_Layout
+	}
+	if info.is_cube_map && (info.width != info.height || info.array_size % 6 != 0) {
+		return 0, .Invalid_Layout
+	}
+	max_mips := u32(1)
+	for dimension := max(info.width, info.height); dimension > 1; dimension /= 2 {
+		max_mips += 1
+	}
+	if info.mip_levels > max_mips {
+		return 0, .Invalid_Layout
+	}
+	count := subresource_count(info)
+	if count > u64(max(u32)) || count > u64(max(int)) / size_of(Subresource) {
+		return 0, .Size_Overflow
+	}
+	chain_bytes: u64
+	w, h := info.width, info.height
+	for mip in 0 ..< info.mip_levels {
+		n, _, _, ok := surface_info(w, h, info.format)
+		if !ok {
+			return 0, .Size_Overflow
+		}
+		chain_bytes += u64(n)
+		if chain_bytes > u64(max(u32)) {
+			return 0, .Size_Overflow
+		}
+		w, h = max(u32(1), w / 2), max(u32(1), h / 2)
+	}
+	// Both factors are now at most UINT32_MAX; adding a u32 offset still fits u64.
+	total := u64(info.data_offset) + chain_bytes * u64(info.array_size)
+	if total > u64(max(u32)) || total > u64(max(int)) {
+		return 0, .Size_Overflow
+	}
+	return u32(total), .None
+}
+
+@(private)
+validate_data :: proc(info: Texture_Info, data_size: int) -> Error {
+	size, err := layout_size(info)
+	if err != .None {return err}
+	if u64(data_size) > u64(max(u32)) {return .Size_Overflow}
+	if u64(size) > u64(data_size) {return .Data_Truncated}
+	return .None
 }
 
 // C++: LoaderHelpers::FillInitData — walk every surface, computing offsets and pitches.
@@ -188,8 +255,13 @@ parse_subresources :: proc(
 	data: []byte,
 	dst: []Subresource,
 ) -> Error {
+	if err := validate_data(info, len(data)); err != .None {
+		return err
+	}
 	count := subresource_count(info)
-	assert(len(dst) >= int(count), "dst too small; use subresource_count(info)")
+	if u64(len(dst)) < count {
+		return .Destination_Too_Small
+	}
 
 	offset := info.data_offset
 	i := 0
@@ -198,10 +270,10 @@ parse_subresources :: proc(
 		for mip in 0 ..< info.mip_levels {
 			num_bytes, row_bytes, num_rows, ok := surface_info(w, h, info.format)
 			if !ok {
-				return .Unsupported_Format
+				return .Size_Overflow
 			}
 
-			if int(offset) + int(num_bytes) > len(data) {
+			if u64(offset) + u64(num_bytes) > u64(len(data)) {
 				return .Data_Truncated
 			}
 
@@ -243,7 +315,14 @@ parse :: proc(
 		return info, nil, err
 	}
 
-	subresources = make([]Subresource, subresource_count(info), allocator)
+	if err = validate_data(info, len(data)); err != .None {
+		return info, nil, err
+	}
+	alloc_err: mem.Allocator_Error
+	subresources, alloc_err = make([]Subresource, int(subresource_count(info)), allocator)
+	if alloc_err != .None || subresources == nil {
+		return info, nil, .Out_Of_Memory
+	}
 	if serr := parse_subresources(info, data, subresources); serr != .None {
 		delete(subresources, allocator)
 		return info, nil, serr

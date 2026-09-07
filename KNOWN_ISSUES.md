@@ -1,9 +1,9 @@
 # Known Issues
 
 Issues originally recorded on 2026-08-11, revalidated against the Odin port, matching
-C++ demos, shaders, and vendored DirectXTK12 on 2026-09-06. **The graphics-memory P1 is
-implemented; all other fixes remain proposed and unapplied.** See each entry's status and
-verification evidence. Implementation work beyond the approved P1 still needs its own go-ahead.
+C++ demos, shaders, and vendored DirectXTK12 on 2026-09-06. **Graphics-memory retirement and
+DDS layout arithmetic are fixed; other fixes remain proposed and unapplied.** See each entry's
+status and verification evidence. Further issue fixes still need their own go-ahead.
 
 This ledger separates defects from their priority in a learning-oriented project. A successful
 run on bundled assets does not disprove a failure path; a different constant does not prove
@@ -18,7 +18,7 @@ a visual defect unless a shader or another consumer uses it.
 | Issue | Status / priority | Relationship to reference | Recommended change size |
 | --- | --- | --- | --- |
 | Graphics-memory page retirement | ✅ Fixed, P1 | Lifetime lost in DirectXTK12 reduction | Small ordering change across 15 frame draw paths |
-| DDS layout arithmetic | Reproduced, P2 for bundled demos; P1 before external-input use | Validation omitted or weakened in reduced loader | Moderate parser/upload-boundary work |
+| DDS layout arithmetic | ✅ Fixed, P2 | Validation omitted or weakened in reduced loader | Bounded parser arithmetic and upload-limit checks |
 | DXC method failure | Source-confirmed, P2 | Weakness also present in book C++ | Small shared-helper change |
 | Billboard transparent depth | Source-confirmed, P2 | Missing C++ PSO assignment | One assignment restores parity |
 | WavesCS defaults | Source-confirmed, P2 | Earlier demo defaults copied | Two values restore parity |
@@ -97,6 +97,8 @@ and Bezier's tessellation slider. Other documented visual/parity issues remain o
 
 ## P2: Malformed DDS headers can overflow layout arithmetic
 
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).**
+
 Affected code:
 
 - `odin_port/dds/dds.odin`: `parse_info`, `subresource_count`, `parse_subresources`, and
@@ -105,9 +107,9 @@ Affected code:
 - `odin_port/common/texture_upload.odin`: narrowing array and mip counts into the D3D12
   resource description
 
-Header-derived dimensions and counts are kept in `u32` and multiplied without checked
-arithmetic. This includes cube-array expansion, `array_size * mip_levels`, compressed block
-counts, row sizes, surface sizes, and accumulated offsets. A DX10 `array_size` of zero is
+Before the fix, header-derived dimensions and counts were kept in `u32` and multiplied without
+checked arithmetic. This included cube-array expansion, `array_size * mip_levels`, compressed
+block counts, row sizes, surface sizes, and accumulated offsets. A DX10 `array_size` of zero was
 also normalized to one, whereas DirectXTK12 rejects it.
 
 A temporary probe on 2026-09-06 reproduced the bounds panic using a 1x1 DX10 RGBA8
@@ -118,26 +120,51 @@ a bounds panic. Other wrapped surface calculations can make malformed data appea
 enough, produce overlapping offsets, or reach `texture_upload.odin` before array and mip
 counts are silently narrowed to `u16`.
 
-Suggested fix:
+Implemented fix:
 
-- In `dds`, reject invalid dimensions, zero DX10 arrays, illegal mip chains and invalid cube
-  counts. Preserve the valid legacy convention that a stored mip count of zero means one.
-- Widen operands before products and sums; check arithmetic overflow, destination
-  representability, accumulated offsets and allocation bounds before allocation or indexing.
-  Apply the contract to public layout helpers as well as the allocating `parse` wrapper.
-- In `common/texture_upload.odin`, enforce D3D12 dimension, array, mip, pitch and subresource
-  restrictions before narrowing or resource creation. Keep graphics imports out of `dds`.
-- Add malformed-header tests for zero arrays, cube expansion, subresource-count overflow,
-  row/surface overflow and accumulated offsets, plus focused upload-boundary limit checks.
+- Kept the existing `u32` layout fields, with wide intermediate calculations and explicit
+  representability checks. File/surface sizes remain bounded by `UINT32_MAX`, matching
+  DirectXTK12's `LoadTextureDataFromMemory` and `FillInitData` limits.
+- Added `layout_size` to validate dimensions, arrays, cubes, mip chains, cumulative byte sizes
+  and allocation bounds without allocating. `subresource_count` now returns a wide `u64`
+  product. Zero stored mip counts still mean one; zero DX10 arrays are rejected.
+- Both public parsing paths reject truncated data before allocation or writing entries.
+  Caller-supplied metadata is validated too. Short destinations and failed allocations return
+  errors instead of panicking; the demos retain their caller-owned fatal-error policy.
+- Restored D3D12 dimension, array, mip and subresource limits in the upload layer before
+  `u16` narrowing or resource creation. The supported format/axis bounds keep aligned pitches
+  within `u32`; returned upload-buffer sizes are checked before CPU-sized conversions.
+- Added five DDS regression tests and one upload-limit test. `just test-upload` runs the latter
+  without a graphics device and is included in `just validate`.
 
-The same probe confirmed that `surface_info(0x08000000, 1, .R8G8B8A8_UNORM)` returns
-zero bytes and success, and that a zero DX10 array is accepted as one layer. Ordinary Odin
+The original probe confirmed that `surface_info(0x08000000, 1, .R8G8B8A8_UNORM)` returned
+zero bytes and success, and that a zero DX10 array was accepted as one layer. Ordinary Odin
 integer arithmetic wraps; widening only after multiplication cannot repair the result.
 
-P2 reflects the current bundled, developer-controlled assets. Treat this as P1 before accepting
-external DDS files or presenting the parser as safe for general reuse. The proposed work is
-moderate in size but stays in shared loaders; demo draw code and the supported-format subset
-need not change. Preserve returned parser errors and caller-owned fatal-error policy.
+**Verification:** the initial regression failed on the old code's wrapped row/surface sizes,
+zero arrays and cube expansion. On Odin `dev-2026-09-nightly:a2fb372`, the completed suite passed:
+
+- `just validate`: 52 release/debug checks and 35 tests (10 math, 24 DDS, one upload-limit test).
+  All 100 bundled textures still pass: 1,359 subresources and 439.4 MiB.
+- DDS and upload-limit tests under AddressSanitizer with debug instrumentation. DDS tests also
+  passed optimized with assertions and bounds checks disabled, demonstrating explicit rejection.
+  Panic-allocator cases prove malformed/truncated files fail before allocation. Boundary helpers
+  test multi-GB offsets/counts without allocating multi-GB fixtures.
+- `just test-gpu`: the existing 15 upload-retirement scenarios still pass, along with the
+  new device-free upload-limit test.
+- All eleven textured Chapter 9–14 debug demos rendered, survived six resizes each, and exited
+  zero through Escape. Their D3D12 callbacks and COM/Odin leak reports produced no unexpected
+  messages; only the documented id 1328 warnings appeared. GPU-based validation remained off.
+  This pass checked texture rendering and ordinary UI/resize/exit behavior; it did not repeat
+  every camera/slider interaction from the earlier baseline.
+
+Visual checks compared captures with the established baseline. An obscured VecAddCS capture
+was rerun. One PrintWindow-assisted TexturedShapes snapshot showed incomplete geometry;
+later captures were complete, and 12 direct screen captures each of the baseline and fixed
+executables all retained the full scene. The cause of that isolated snapshot was not established.
+
+The fix stays in the shared loading boundary. Demo draw code, supported formats and successful
+texture layouts are unchanged; parser/API limits remain separate for readers following the book.
 
 ## P2: A failing DXC `Compile` call dereferences a nil result
 
