@@ -860,6 +860,8 @@ build_psos :: proc(app: ^Billboard_App) {
 
 	// PSO for transparent objects: standard source-alpha blending.
 	transparent_pso_desc := base_pso_desc
+	// C++: transparentPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	transparent_pso_desc.DepthStencilState.DepthWriteMask = .ZERO
 	transparent_pso_desc.BlendState.RenderTarget[0] = {
 		BlendEnable           = true,
 		LogicOpEnable         = false,

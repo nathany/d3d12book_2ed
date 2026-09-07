@@ -819,6 +819,10 @@ Moving the skull must move the original, reflection, and shadow together.
 
 ### Ch 12 — The Geometry Shader  *(BillboardsGS)*
 
+The transparent water PSO keeps depth testing but disables depth writes, matching the book.
+Trees are drawn afterward, so water must not prevent overlapping tree fragments from passing
+the depth test. This draw order is the book's example, not a general transparency-sorting solution.
+
 **New this chapter:** GS stage in the PSO; a texture2DArray DDS — your DDS loader + upload
 helper must handle `array_size * mip_levels` subresources. Extend them now if you cut that
 corner.

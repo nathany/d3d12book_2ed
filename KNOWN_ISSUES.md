@@ -20,7 +20,7 @@ a visual defect unless a shader or another consumer uses it.
 | Graphics-memory page retirement | ✅ Fixed, P1 | Lifetime lost in DirectXTK12 reduction | Small ordering change across 15 frame draw paths |
 | DDS layout arithmetic | ✅ Fixed, P2 | Validation omitted or weakened in reduced loader | Bounded parser arithmetic and upload-limit checks |
 | DXC method failure | ✅ Fixed, P2 | Weakness also present in book C++ | Small shared-helper change |
-| Billboard transparent depth | Source-confirmed, P2 | Missing C++ PSO assignment | One assignment restores parity |
+| Billboard transparent depth | ✅ Fixed, P2 | Missing C++ PSO assignment | One assignment restores parity |
 | WavesCS defaults | Source-confirmed, P2 | Earlier demo defaults copied | Two values restore parity |
 | BasicTessellation zoom | Source-confirmed, P2 | Crate controls copied | Restore scales and clamp bounds |
 | BezierPatch camera/zoom | Source-confirmed, P2 | Other demo defaults and controls copied | Restore initialization and zoom constants |
@@ -223,24 +223,31 @@ device; otherwise prove each rejection with a small parser-level helper.
 
 ## P2: Billboard water incorrectly writes depth
 
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).**
+
 Affected code: `odin_port/C12_BillboardsGS/billboard_app.odin`, `build_psos`.
 
 The C++ `BillboardApp` sets the transparent PSO's depth write mask to
-`D3D12_DEPTH_WRITE_MASK_ZERO`. The Odin PSO inherits the default `ALL` value. Transparent
+`D3D12_DEPTH_WRITE_MASK_ZERO`. The Odin PSO previously inherited the default `ALL` value. Transparent
 water is drawn before the billboard sprites, so the water can populate depth and make
 later overlapping tree fragments fail their depth test. Disabling depth writes restores the
 book's draw behavior; it does not introduce general transparency sorting or guarantee physically
 correct compositing of sprites drawn after water.
 
-Suggested fix:
+Implemented before transparent PSO creation:
 
 ```odin
 transparent_pso_desc.DepthStencilState.DepthWriteMask = .ZERO
 ```
 
-This one-assignment fix restores C++ parity. Place it before creating the transparent PSO. Visually compare the result with
-the C++ demo from camera angles where water overlaps tree sprites, then perform the standard
-resize, Escape, debug-layer, and leak checks.
+This one-assignment fix restores C++ parity. Release/debug checks passed on
+`dev-2026-09-nightly:a2fb372`. Before/fixed Odin executables and a freshly built, unchanged C++
+BillboardsGS sample were compared at the initial view and two orbit angles. At an overlap
+angle, the fixed Odin and C++ scenes retained tree fragments that the old Odin water occluded.
+Randomized tree placement prevents a pixel-exact cross-language comparison. The fixed demo
+survived six resizes and exited 0 through Escape; only seven expected id 1328 warnings appeared,
+with no unexpected debug or COM/Odin leak messages. A capture obscured by another window was
+rerun. The temporary C++ build emitted existing C4267 conversion warnings; Odin checks passed.
 
 ## P2: WavesCS uses the wrong simulation defaults
 
