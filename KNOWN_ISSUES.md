@@ -24,7 +24,7 @@ a visual defect unless a shader or another consumer uses it.
 | WavesCS defaults | ✅ Fixed, P2 | Earlier demo defaults copied | Two values restore parity |
 | BasicTessellation zoom | ✅ Fixed, P2 | Crate controls copied | Restore scales and clamp bounds |
 | BezierPatch camera/zoom | ✅ Fixed, P2 | Other demo defaults and controls copied | Restore initialization and zoom constants |
-| Skull counts and indices | Source-confirmed, P3 | Book also trusts bundled model | Focused parser checks |
+| Skull counts and indices | ✅ Fixed, P3 | Book also trusts bundled model | Focused parser checks |
 | Chapter 14 unused lights / stale attribution | Confirmed differences, P3 cleanup | Lights differ but shaders do not consume them | Optional constant, naming and comment cleanup |
 
 After the allocator fix, the recommended sequence is small demo parity fixes, shared
@@ -194,9 +194,11 @@ only its two expected id 1328 messages and no unexpected COM/Odin leak reports.
 
 ## P3: The skull loader trusts file-derived counts and indices
 
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).**
+
 Affected code: `odin_port/common/geometry_builders.odin`, `build_skull_geometry`.
 
-`vcount` and `tcount` are parsed as signed `int` values and immediately used as slice
+Before the fix, `vcount` and `tcount` were parsed as signed `int` values and immediately used as slice
 lengths. The expression `3 * tcount` is unchecked, byte sizes are later narrowed to `u32`,
 and parsed indices are narrowed to `i32` without verifying that they address a loaded
 vertex. A malformed model can therefore panic on a negative or overflowed allocation,
@@ -209,17 +211,24 @@ developer-controlled asset rather than a general input format, and the matching 
 fixing because the shared Odin loader otherwise turns a damaged or edited asset into an
 allocator, bounds, or GPU-validation failure instead of a useful parse error.
 
-Suggested fix:
+Implemented: `skull_buffer_sizes` rejects nonpositive counts and bounds operands before
+triangle/index/byte products. Sizes must fit both the CPU allocator and D3D12's `u32` buffer
+views. A minimum-token byte bound rejects implausible counts in tiny files before allocation.
+Every index is checked against the vertex count and `i32` range before narrowing or GPU
+buffer creation. The original token loop, tangent/UV generation and ownership remain intact.
 
-- Require positive counts within explicit application and D3D12 limits.
-- Use checked sufficiently-wide arithmetic for triangle-to-index and byte-size products.
-- Verify every parsed index is nonnegative, representable as `i32`, and less than
-  `vcount` before creating buffers.
-- Report malformed input through `report_error` rather than allowing an allocator or
-  bounds panic.
+Two permanent device-free boundary tests cover negative/zero counts, short files, overflow,
+exact buffer-size limits and index endpoints. They run through `just test-upload` and
+`just validate`, and passed under AddressSanitizer on `dev-2026-09-nightly:a2fb372`.
+Isolated fixtures also exercised the actual loader with negative/huge counts, a tiny file
+claiming a million vertices, and indices -1, 3 (for three vertices), and 2147483648. All six
+reported the expected stderr/MessageBox error and exited 1 before GPU access. Fatal-process
+allocation cleanup is intentionally outside the normal-shutdown leak requirement.
 
-Add focused malformed-model tests if the loader is separated enough to test without a D3D
-device; otherwise prove each rejection with a small parser-level helper.
+`just validate` passed 52 release/debug checks and 37 tests. All three consumers (LitShapes,
+TexturedShapes and Stenciling) rendered the unchanged bundled model, survived six resizes
+each and exited 0 through Escape. Each emitted only four expected id 1328 warnings and no
+unexpected debug or COM/Odin leak messages.
 
 ## P2: Billboard water incorrectly writes depth
 

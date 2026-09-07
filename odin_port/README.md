@@ -28,7 +28,7 @@ just --list                       # show the available workflows
 just examples                     # list every runnable demo
 just test C1_XMVECTOR             # chapters 1–3 are math-only tests
 just test dds                     # synthetic and repository DDS parser tests
-just test-upload                  # DDS upload-limit tests, no graphics device required
+just test-upload                  # DDS/skull loading-boundary tests, no graphics device required
 just run APPENDIX_A
 just run C7_Waves                 # debug layer, stderr validation, COM leak report,
                                   # and Odin tracking allocator (common/mem_track.odin)

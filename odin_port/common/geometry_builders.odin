@@ -175,6 +175,8 @@ next_int :: proc(it: ^string, what: string) -> int {
 // C++: d3dUtil::BuildSkullGeometry — loads Models/skull.txt (raw text: vertex count,
 // triangle count, then "pos normal" lines and index triples), generating tangents and
 // spherical-projection texture coordinates the file doesn't carry.
+// Odin: validate file counts and indices before allocating or creating GPU buffers.
+// The book trusts this bundled model; a damaged copy should produce a useful error.
 build_skull_geometry :: proc(upload_batch: ^Resource_Upload_Batch) -> ^Mesh_Geometry {
 	data, err := os.read_entire_file("Models/skull.txt", context.allocator)
 	if err != nil {
@@ -191,6 +193,11 @@ build_skull_geometry :: proc(upload_batch: ^Resource_Upload_Batch) -> ^Mesh_Geom
 	vcount := next_int(&it, "vertex count")
 	_ = next_token(&it, "header") // "TriangleCount:"
 	tcount := next_int(&it, "triangle count")
+	vb_byte_size, ib_byte_size, counts_ok := skull_buffer_sizes(vcount, tcount, len(data))
+	if !counts_ok {
+		report_error("Models/skull.txt: vertex/triangle counts must be positive and fit the file and buffer limits")
+		os.exit(1)
+	}
 	for _ in 0 ..< 4 { 	// C++: fin >> ignore x4 — "VertexList (pos, normal) {"
 		_ = next_token(&it, "header")
 	}
@@ -252,11 +259,13 @@ build_skull_geometry :: proc(upload_batch: ^Resource_Upload_Batch) -> ^Mesh_Geom
 	indices := make([]i32, 3 * tcount)
 	defer delete(indices)
 	for &index in indices {
-		index = i32(next_int(&it, "index"))
+		parsed := next_int(&it, "index")
+		if !skull_index_valid(parsed, vcount) {
+			report_error(fmt.tprintf("Models/skull.txt: index %d must be in 0..<%d and fit i32", parsed, vcount))
+			os.exit(1)
+		}
+		index = i32(parsed)
 	}
-
-	vb_byte_size := u32(len(vertices) * size_of(Model_Vertex))
-	ib_byte_size := u32(len(indices) * size_of(i32))
 
 	geo := new(Mesh_Geometry)
 	geo.name = "skullGeo"
@@ -296,4 +305,25 @@ build_skull_geometry :: proc(upload_batch: ^Resource_Upload_Batch) -> ^Mesh_Geom
 	}
 
 	return geo
+}
+
+// D3D12 vertex/index buffer views store byte sizes in UINT. Bound operands before
+// multiplying, including the CPU allocator's int-sized byte count. Each vertex requires
+// six numeric tokens and each triangle three; even one byte per token must fit the file.
+// This cheap lower bound stops tiny corrupt headers from requesting huge allocations.
+@(private)
+skull_buffer_sizes :: proc(vcount, tcount, file_size: int) -> (vertex_bytes, index_bytes: u32, ok: bool) {
+	if vcount <= 0 || tcount <= 0 || file_size < 0 {return 0, 0, false}
+	limit := min(u64(max(u32)), u64(max(int)))
+	v, t := u64(vcount), u64(tcount)
+	if v > limit / size_of(Model_Vertex) || t > limit / (3 * size_of(i32)) {
+		return 0, 0, false
+	}
+	if v * 6 + t * 3 > u64(file_size) {return 0, 0, false}
+	return u32(v * size_of(Model_Vertex)), u32(t * 3 * size_of(i32)), true
+}
+
+@(private)
+skull_index_valid :: proc(index, vertex_count: int) -> bool {
+	return index >= 0 && u64(index) <= u64(max(i32)) && index < vertex_count
 }

@@ -134,7 +134,7 @@ just run C7_Waves          # -debug gates ODIN_DEBUG: D3D12 debug layer,
                            # Odin tracking allocator
 just test C2_XMMATRIX      # ch 1-3 are math-only, ported as tests
 just test dds              # DDS parser tests (integration half needs repo root)
-just test-upload           # DDS upload-limit tests; no graphics device required
+just test-upload           # DDS/skull loading-boundary tests; no graphics device required
 just test-gpu              # opt-in GPU upload-retirement regression; requires D3D12 + debug layer
 just check C7_Waves        # release and debug type checks
 just build-asan C7_Waves   # sanitizer build in the session temp directory

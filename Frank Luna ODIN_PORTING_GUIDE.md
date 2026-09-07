@@ -667,6 +667,10 @@ skull loader is the C++'s `fin >> token` istream loop re-spelled as
 `strings.fields_iterator` + `strconv` over the whole file — ~370k tokens, parses in
 milliseconds — with the tangents and spherical-projection UVs generated exactly as the C++
 does (the file only carries positions and normals).
+The port checks counts before allocating: their byte sizes must fit the buffer views, and
+even the minimum numeric-token data must fit the file. Each index must address a loaded
+vertex before it is narrowed to `i32`. These boundary checks give a damaged model a useful
+error while leaving the book's geometry-generation loop intact.
 
 The lights rotate in `update`: `rotation_y(angle)` applied to the three base directions with
 `transform_normal` (w = 0 — a direction, not a point), then written into the pass CB's light
