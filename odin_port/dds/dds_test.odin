@@ -529,3 +529,38 @@ test_subresource_detects_truncation :: proc(t: ^testing.T) {
 	_, _, err := parse(buf, context.temp_allocator)
 	testing.expect_value(t, err, Error.Data_Truncated)
 }
+
+// DirectXTK12 maps legacy FourCC 110/115 to these 64-bit formats. Exercise the
+// complete parser as well as DX10 headers, so a mapping without a stride cannot pass.
+@(test)
+test_legacy_64_bit_formats :: proc(t: ^testing.T) {
+	cases := [?]struct {four_cc: u32, format: Format} {
+		{110, .R16G16B16A16_SNORM},
+		{115, .R32G32_FLOAT},
+	}
+	for c in cases {
+		for dx10 in ([?]bool{false, true}) {
+			pf := Pixel_Format{size = size_of(Pixel_Format), flags = DDPF_FOURCC, four_cc = c.four_cc}
+			// 3x2 plus 1x1 mip: 48 + 8 bytes, with tight row pitches 24 and 8.
+			buf := dx10 ? make_dds_dx10(3, 2, 2, c.format, 1, payload_bytes = 56) :
+				make_dds(3, 2, 2, pf, payload_bytes = 56)
+			defer delete(buf)
+			info, subs, err := parse(buf)
+			defer delete(subs)
+			testing.expectf(t, err == .None, "FourCC %d / DX10=%v: %v", c.four_cc, dx10, err)
+			if err != .None {continue}
+			testing.expect_value(t, info.format, c.format)
+			testing.expect_value(t, len(subs), 2)
+			if len(subs) != 2 {continue}
+			testing.expect_value(t, subs[0].row_pitch, u32(24))
+			testing.expect_value(t, subs[0].size, u32(48))
+			testing.expect_value(t, subs[1].row_pitch, u32(8))
+			testing.expect_value(t, subs[1].size, u32(8))
+			testing.expect_value(t, subs[0].offset, info.data_offset)
+			testing.expect_value(t, subs[1].offset, info.data_offset + 48)
+			testing.expect_value(t, int(subs[1].offset + subs[1].size), len(buf))
+			_, _, short_err := parse(buf[:len(buf)-1], mem.panic_allocator())
+			testing.expect_value(t, short_err, Error.Data_Truncated)
+		}
+	}
+}
