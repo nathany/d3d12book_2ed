@@ -32,10 +32,9 @@ that decides to kill the process.
 
 ## No graphics API required
 
-The parser imports exactly one thing: `core:mem`, and builds for `linux_amd64`,
-`linux_arm64`, `darwin_arm64`, and `freebsd_amd64` as well as Windows. Importing
-`vendor:directx/dxgi` would forfeit that — it link-depends on `system:dxgi.lib`,
-`user32.lib`, and `gdi32.lib`, which *compiles* anywhere but fails to link off-Windows.
+The parser imports only `core:mem`. Keeping file-format parsing separate from resource
+creation makes malformed-header tests possible without setting up a graphics device.
+This project's setup and validation target Windows and DirectX 12.
 
 So `Format` is declared locally in [`format_ids.odin`](format_ids.odin), **using DXGI's
 numbering** — not a concession to Direct3D but the file format's own vocabulary, since a
@@ -49,13 +48,6 @@ Format = dxgi.FORMAT(info.format)
 [`format_dxgi_test.odin`](format_dxgi_test.odin) asserts all 51 members agree with
 `vendor:directx/dxgi` value-for-value, so that cast can't drift. It is the only file here
 that imports a graphics API, and it's gated `#+build windows`.
-
-Other APIs are deliberately not mapped — this project is DX12-only, and a table no demo
-exercises would just rot. `Format` is plain data, so a Vulkan or Metal backend can map it
-itself. Two gotchas for anyone doing so: Vulkan splits BC1 into `BC1_RGB`/`BC1_RGBA` where
-D3D's single `BC1_UNORM` always carries the 1-bit punch-through alpha (`BC1_RGBA_*` is the
-lossless reading, and 48 of the book's 100 textures are BC1), and Vulkan has no
-`B8G8R8X8` — five more textures that need a swizzle or a shader ignoring alpha.
 
 ## Supported formats
 

@@ -9,8 +9,8 @@ with DirectX 12* (2nd ed.). Chapter-by-chapter porting notes live in
 Directories mirror the book's `Demos/` folders (one Odin package per demo); files within a
 package mirror the demo's `.cpp` files. Shared code lives in its own packages: `common`
 (the book's `Common/` — app framework, timer, descriptor/upload helpers), `d3d_math`,
-[`dds`](dds/README.md) (a standalone DDS parser — no graphics API at all, so it builds on
-Linux/macOS too; see its README for the supported-format matrix and how it's validated
+[`dds`](dds/README.md) (a standalone DDS parser tested without a graphics device;
+see its README for the supported-format matrix and how it's validated
 against DirectXTK12), `test_util`, and the vendored `libs/imgui`.
 
 ## Running
@@ -33,12 +33,18 @@ just run C7_Waves                 # debug layer, stderr validation, COM leak rep
                                   # and Odin tracking allocator (common/mem_track.odin)
 just check C7_Waves               # release and debug type checks
 just build-asan C13_VecAddCS      # sanitizer build goes to the session temp directory
-just validate                     # all checks, tests, and the portable DDS build
+just validate                     # all Windows type checks and math/DDS tests
+just test-gpu                     # additional opt-in D3D12 upload-lifetime regression
 ```
 
 **Run the windowed demos from the repo root** — shaders load by relative path
 (`Shaders/BasicColor.hlsl`), matching the C++ demos' convention. `just run` enables `-debug`;
 use `just run-release <example>` when the instrumentation is not wanted.
+
+`just test-gpu` additionally requires a D3D12-capable Windows device and the Windows
+Graphics Tools debug layer. It runs without a window or shader compilation, exercises the
+allocator with deliberately delayed GPU work, and checks the data read back by the GPU.
+It is separate from `just validate` so ordinary math/parser validation does not require a GPU.
 
 ### DXC runtime DLLs (one-time, ch 6+)
 

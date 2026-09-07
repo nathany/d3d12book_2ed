@@ -573,8 +573,10 @@ are lazy, so earlier demos pay only for its fence.
 **Lifetime contract:** the reduced allocator must signal its retirement fence **after**
 submitting every command that consumes the pages. C++ resource handles retain page references;
 the Odin handle contains only a GPU address. That simplification requires a different commit
-order. The current frame draw paths still need this correction; see
-[KNOWN_ISSUES.md](KNOWN_ISSUES.md). A fence signaled before a draw cannot prove that draw finished.
+order: **allocate and record → submit → commit → reuse after fence completion**. The frame
+draw paths now follow this order. Retaining an Odin handle variable does not retain its
+page. A fence signaled before a draw cannot prove that draw finished; the later signal is
+what makes this smaller ownership model work without the C++ reference-counted handles.
 
 Demo-side, this is where the book's CPU/GPU parallelism arrives: a `FrameResource` ring
 (per-frame allocator, pass CB, fence value) means **Draw no longer flushes**, and Update waits
@@ -723,13 +725,10 @@ the resource). A parser that needs no GPU and no assets is one you can unit-test
 deliberately corrupt headers, and check against DirectXTK12 file by file — see
 `odin_port/dds/README.md` for how that validation was run.
 
-While you're at it, **don't let `dxgi.FORMAT` leak into the parser**.
-`vendor:directx/dxgi` link-depends on three Windows `.lib`s, so any package that touches it
-becomes Windows-only — and it *compiles* fine off-Windows, so you won't notice until
-something tries to link. Declare the format enum locally, *using DXGI's numbers*: that's not
-a concession to D3D but the file format's own vocabulary, since a DX10 header stores a raw
-`DXGI_FORMAT` integer. Then `dxgi.FORMAT(f)` is a cast rather than a table, and the parser
-stays something you could lift into another project unchanged.
+The parser's **local format enum uses DXGI's numbers** because a DX10 DDS header stores a
+raw `DXGI_FORMAT` integer. This keeps the file-format vocabulary in the parser and the
+graphics API types in the upload layer. At that boundary, `dxgi.FORMAT(f)` is a plain cast;
+there is no format translation table to follow while learning texture uploads.
 
 The current parser handles the bundled assets, but still has known malformed-input
 arithmetic gaps. See [the issue ledger](KNOWN_ISSUES.md) before reusing it with external

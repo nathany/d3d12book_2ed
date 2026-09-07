@@ -311,7 +311,8 @@ update_per_object_cb :: proc(app: ^Blend_Demo_App) {
 		ri.object_cb.tex_transform = linalg.transpose(ri.tex_transform)
 		ri.object_cb.material_index = u32(ri.mat.mat_index)
 
-		// Need to hold handle until we submit work to GPU.
+		// C++: Need to hold handle until we submit work to GPU.
+		// Odin keeps the address for draw; submit-then-commit protects the page lifetime.
 		ri.mem_handle_to_object_cb = common.allocate_constant(
 			&app.linear_allocator,
 			ri.object_cb,
@@ -573,12 +574,12 @@ draw :: proc(base: ^common.D3D_App) {
 	// Done recording commands.
 	common.hr_panic(base.command_list->Close(), "CommandList Close")
 
-	// C++: mLinearAllocator->Commit(mCommandQueue.Get());
-	common.commit(&app.linear_allocator, base.command_queue)
-
 	// Add the command list to the queue for execution.
 	cmd_lists := [?]^d3d12.ICommandList{(^d3d12.ICommandList)(base.command_list)}
 	base.command_queue->ExecuteCommandLists(len(cmd_lists), &cmd_lists[0])
+	// C++: mLinearAllocator->Commit(mCommandQueue.Get());
+	// Odin: submit first; our GPU-address handles do not retain pages like DirectXTK12's.
+	common.commit(&app.linear_allocator, base.command_queue)
 
 	// Swap the back and front buffers.
 	present_params := dxgi.PRESENT_PARAMETERS{}

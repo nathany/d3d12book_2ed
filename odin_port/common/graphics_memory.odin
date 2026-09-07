@@ -7,15 +7,18 @@
 //  - allocate_constant(T): copy T into a persistently-mapped upload page at a 256-byte
 //    aligned offset and return its GPU virtual address, valid until the frame's commands
 //    finish on the GPU.
-//  - commit(queue): call once per frame after ExecuteCommandLists is *about to happen* —
-//    the C++ commits right before executing; either order works because the fence signal
-//    below lands after the frame's commands either way. Pages filled this frame are
-//    tagged with a fence value and recycled once the GPU passes it.
+//  - commit(queue): call AFTER ExecuteCommandLists submits every consumer of the active
+//    pages to this same queue. Its signal then follows those consumers; pages can only
+//    be recycled after that signal completes. Allocation/commit is single-threaded.
+//    This deliberately differs from the book's commit-before-submit call order:
+//    DirectXTK12's GraphicsResource retains its page and defers retirement while handles
+//    exist. Odin's reduced handle only stores an address, so queue order supplies that
+//    lifetime guarantee. Keeping the handle variable alive does not retain the page.
 //  - get_statistics(): the numbers behind the ImGui "GraphicsMemoryStatistics" panel.
 //
 // What's dropped: pow2 size-bucketed allocator pools, multi-device singleton table,
-// GraphicsResource RAII handles (a returned GPU address stays valid until the fence
-// retires the page — same guarantee the demos' "hold handle until submit" comment needs).
+// GraphicsResource RAII handles. Returned addresses remain valid through the consuming
+// submission only when callers follow the submit-then-commit contract above.
 package common
 
 import "core:mem"
@@ -98,9 +101,8 @@ allocate_constant :: proc(gm: ^Graphics_Memory, data: $T) -> Graphics_Resource {
 	return {gpu_address = page.resource->GetGPUVirtualAddress() + offset}
 }
 
-// C++: GraphicsMemory::Commit(queue) — once per frame: retire pages whose fence has
-// passed, then tag this frame's pages with a new fence value the queue will signal after
-// the frame's commands.
+// C++: GraphicsMemory::Commit(queue). Odin callers must first submit all active-page
+// consumers to this queue. Retire completed pages, then fence this submission's pages.
 commit :: proc(gm: ^Graphics_Memory, queue: ^d3d12.ICommandQueue) {
 	// Recycle in-flight pages the GPU is done with (compact in place).
 	completed := gm.fence->GetCompletedValue()

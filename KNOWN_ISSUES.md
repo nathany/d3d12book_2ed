@@ -1,8 +1,9 @@
 # Known Issues
 
 Issues originally recorded on 2026-08-11, revalidated against the Odin port, matching
-C++ demos, shaders, and vendored DirectXTK12 on 2026-09-06. **All implementation fixes
-below remain proposed and unapplied.** The documentation audit does not authorize code changes.
+C++ demos, shaders, and vendored DirectXTK12 on 2026-09-06. **The graphics-memory P1 is
+implemented; all other fixes remain proposed and unapplied.** See each entry's status and
+verification evidence. Implementation work beyond the approved P1 still needs its own go-ahead.
 
 This ledger separates defects from their priority in a learning-oriented project. A successful
 run on bundled assets does not disprove a failure path; a different constant does not prove
@@ -16,7 +17,7 @@ a visual defect unless a shader or another consumer uses it.
 
 | Issue | Status / priority | Relationship to reference | Recommended change size |
 | --- | --- | --- | --- |
-| Graphics-memory page retirement | Confirmed, P1 | Lifetime lost in DirectXTK12 reduction | Small ordering change across 15 frame draw paths |
+| Graphics-memory page retirement | ✅ Fixed, P1 | Lifetime lost in DirectXTK12 reduction | Small ordering change across 15 frame draw paths |
 | DDS layout arithmetic | Reproduced, P2 for bundled demos; P1 before external-input use | Validation omitted or weakened in reduced loader | Moderate parser/upload-boundary work |
 | DXC method failure | Source-confirmed, P2 | Weakness also present in book C++ | Small shared-helper change |
 | Billboard transparent depth | Source-confirmed, P2 | Missing C++ PSO assignment | One assignment restores parity |
@@ -26,11 +27,14 @@ a visual defect unless a shader or another consumer uses it.
 | Skull counts and indices | Source-confirmed, P3 | Book also trusts bundled model | Focused parser checks |
 | Chapter 14 unused lights / stale attribution | Confirmed differences, P3 cleanup | Lights differ but shaders do not consume them | Optional constant, naming and comment cleanup |
 
-Recommended sequence: allocator ordering, small demo parity fixes, shared shader/parser
-boundary checks, then optional cleanup. Keep individual demos reviewable and obtain the
+After the allocator fix, the recommended sequence is small demo parity fixes, shared
+shader/parser boundary checks, then optional cleanup. Keep individual demos reviewable and obtain the
 appropriate implementation go-ahead. Retain the per-demo structure and existing Odin idioms.
 
 ## P1: Graphics-memory pages can be recycled before the GPU is finished
+
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).** The regression demonstrated
+the failure before the production edit and passed after the submission-order fix.
 
 Affected code:
 
@@ -38,11 +42,11 @@ Affected code:
 - Every frame draw path that calls `common.commit` before `ExecuteCommandLists`
   (15 frame draw paths across the Chapter 7 through Chapter 14 demos)
 
-The reduced allocator queues its private fence signal from `commit`. The draw paths call
-`commit` before they submit the command list that consumes the constants allocated from
-the active upload pages. Queue ordering therefore places the signal before the consuming
-draw. Once that signal completes, a later `commit` can move the page to the free list and a
-subsequent frame can overwrite it while the original draw is still executing.
+The reduced allocator queues its private fence signal from `commit`. Before the fix, the
+draw paths called `commit` before submitting the command list that consumed the constants
+allocated from the active upload pages. Queue ordering therefore placed the signal before
+the consuming draw. Once that signal completed, a later `commit` could move the page to the
+free list and a subsequent frame could overwrite it while the original draw was still executing.
 
 The matching DirectXTK12 code is safe despite the book demos calling `Commit` before
 submission because `GraphicsResource` retains a reference to its allocator page.
@@ -50,21 +54,46 @@ submission because `GraphicsResource` retains a reference to its allocator page.
 reference. The Odin reduction discarded that handle/reference-count lifetime and returns
 only a GPU virtual address, so it cannot rely on the original ordering.
 
-Suggested fix:
+Implemented fix:
 
-- Move each frame's `common.commit` call after its consuming `ExecuteCommandLists`, as the
-  one-time compute path in `C13_VecAddCS` already does.
-- Correct the allocator header's false claim that either order works, plus dependent handle
-  comments. Explain: submit consumers, signal afterward, recycle only after completion.
+- Moved each frame's `common.commit` call after its consuming `ExecuteCommandLists`.
+  The already-correct one-time compute path in `C13_VecAddCS` is unchanged.
+- Corrected the allocator header's false claim that either order works, plus dependent
+  handle comments. The rule is: submit consumers, signal afterward, recycle after completion.
 
 This small, necessary deviation from the book's call order restores its intended lifetime
 guarantee. Restoring DirectXTK12's page-retaining resource handles is a much larger alternative
 and is not recommended for these demos. See `External/DirectXTK12/Src/LinearAllocator.cpp`,
 `FenceCommittedPages` and its refcount test.
 
-Verify under deliberate GPU backlog, not only an unconstrained local run. Constant data
-must remain stable when the CPU gets ahead of the GPU, with no unexpected debug-layer messages or live allocations.
-See `AGENTS.md` for detector requirements and the known-benign warning exception.
+**Regression evidence:** `just test-gpu` runs the opt-in test in
+`odin_port/common/graphics_memory_test.odin`. It reads each of the 15 demo draw procedures'
+submit/commit order and replays that order against the real allocator and a D3D12 copy.
+A queue fence holds the GPU consumer while the CPU runs another retirement/allocation pass;
+a preceding marker establishes exactly which signals have completed without relying on sleeps.
+
+- Before the fix, all 15 paths reused the blocked consumer's address. GPU readback returned
+  the replacement `0xaabbccdd`, instead of the original `0x11223344`; the test exited nonzero.
+- After the fix, all 15 preserved the original value and avoided early address reuse.
+  The test also verified reuse after GPU completion, so keeping every page forever would fail.
+- The debug info queue reported no unexpected warnings/errors, and the Odin test tracker
+  reported no outstanding allocations. Missing debug-layer/device support fails explicitly.
+
+This is a source-order check plus a real GPU lifetime test, not execution of each complete
+draw procedure. The current straight-line procedure shape is checked explicitly; future
+control-flow changes require reviewing its model. Windowed demo verification remains separate.
+See `AGENTS.md` for the test prerequisites, detector requirements and known-benign warning exception.
+
+**Post-fix verification:** on Odin `dev-2026-09-nightly:a2fb372`, `just validate` passed
+(52 release/debug checks, 29 math/DDS tests, and the portable DDS build), and `just test-gpu`
+passed with strict style and warnings treated as errors. All 15 affected debug demos rendered,
+survived six resizes each, and exited 0 without unexpected debug messages or COM/Odin leak
+reports. VecAddCS still produced all 32 expected output tuples. Temporary copies of Shapes,
+WavesCS and Blur also passed rendering, resize and exit checks with **GPU-based validation
+enabled**; its default remains off in the repository. The previously established callback,
+resource-state error and intentional-leak probes remain applicable to the unchanged diagnostic
+plumbing. Representative input checks covered orbit-camera changes, Blur's wireframe checkbox
+and Bezier's tessellation slider. Other documented visual/parity issues remain open.
 
 ## P2: Malformed DDS headers can overflow layout arithmetic
 
@@ -271,7 +300,14 @@ WinGet PATH entry in Git Bash, and `just validate` itself passed**:
 - 52 release/debug type checks: 19 apps, four test packages, three support packages
 - 29 tests: four Chapter 1, one Chapter 2, five Chapter 3, and 19 DDS tests
 - DDS integration coverage: 100 book textures, 1,359 subresources, 439.4 MiB
-- Portable Linux AMD64 object build of `odin_port/dds`
+- Linux AMD64 object build of `odin_port/dds` (historical check; subsequently removed from the workflow)
+
+At the user's request, the DDS Linux build recipe was removed after the P1 verification.
+`just validate` now covers Windows release/debug checks and math/DDS tests; cross-platform
+DDS builds are outside this project's validation scope. The parser remains separate from
+GPU upload code so malformed-input tests need no graphics device. After this cleanup,
+`just validate` passed all 52 checks and 29 tests, and `just test-gpu` passed all 15 scenarios
+again on `dev-2026-09-nightly:a2fb372` (2026-09-06 local date / 2026-09-07 UTC).
 
 The suite was rerun successfully after the compiler update to
 **`dev-2026-09-nightly:a2fb372`** (2026-09-06 local date / 2026-09-07 UTC). A temporary
@@ -282,7 +318,7 @@ The initial agent sandbox could not execute the installed WinGet tool. Running t
 Git Bash command with approved access resolved it; this was not a missing installation or
 PATH entry. Discovery guidance belongs in `AGENTS.md`.
 
-### September compiler runtime baseline
+### September compiler runtime baseline (before the P1 fix)
 
 All **19 apps built with `-debug`**, launched from the repository root, survived six window
 resizes, and exited **0 via Escape**. Each run has initial/later and post-resize captures.

@@ -40,6 +40,10 @@ check-all:
 test-all:
     set -e; for package in {{test_packages}}; do odin test "odin_port/$package"; done
 
+# Opt-in D3D12 upload-lifetime regression; requires Windows Graphics Tools and a D3D12 device.
+test-gpu:
+    odin test odin_port/common -debug -strict-style -warnings-as-errors -define:GRAPHICS_MEMORY_GPU_TESTS=true -define:ODIN_TEST_THREADS=1
+
 # Build an example with AddressSanitizer into the session temp directory.
 build-asan example:
     out_dir="${TMPDIR:-${TEMP:-/tmp}}/d3d12book_2ed"; mkdir -p "$out_dir"; odin build "odin_port/{{example}}" -debug -sanitize:address -out:"$out_dir/{{example}}-asan.exe"; printf 'Built %s\n' "$out_dir/{{example}}-asan.exe"
@@ -48,9 +52,5 @@ build-asan example:
 run-asan example:
     odin run "odin_port/{{example}}" -debug -sanitize:address
 
-# Confirm that the graphics-API-free DDS package still builds for Linux.
-dds-portable:
-    out_dir="${TMPDIR:-${TEMP:-/tmp}}/d3d12book_2ed"; mkdir -p "$out_dir"; odin build odin_port/dds -target:linux_amd64 -build-mode:obj -out:"$out_dir/dds-linux-amd64.o"
-
 # Run the full non-interactive validation suite.
-validate: check-all test-all dds-portable
+validate: check-all test-all

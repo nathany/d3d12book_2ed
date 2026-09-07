@@ -109,8 +109,8 @@ to the other, and don't edit the other port's guide unasked.
   evidence only for the configurations and paths that ran. Report check failures separately and do
   not duplicate compiler diagnostics as semantic findings.
 - Accept documented deliberate deviations when their stated guarantees hold. Documentation does
-  not exempt an incorrect premise from review (for example, the allocator's claim that a signal
-  before submission protects that submission). Do not report known-benign diagnostics as defects.
+  not exempt an incorrect premise from review (for example, the allocator's former claim that a
+  signal before submission protects that submission). Do not report known-benign diagnostics as defects.
   Known review traps include:
 
     - Chapter 1 intentionally models its teaching vectors with three lanes and ignores `w`.
@@ -134,6 +134,7 @@ just run C7_Waves          # -debug gates ODIN_DEBUG: D3D12 debug layer,
                            # Odin tracking allocator
 just test C2_XMMATRIX      # ch 1-3 are math-only, ported as tests
 just test dds              # DDS parser tests (integration half needs repo root)
+just test-gpu              # opt-in GPU upload-retirement regression; requires D3D12 + debug layer
 just check C7_Waves        # release and debug type checks
 just build-asan C7_Waves   # sanitizer build in the session temp directory
 ```
@@ -158,12 +159,12 @@ commands, identify that fallback accurately in the report.
 `core:testing` here has **no `log`/`logf`/`errorf`** — use `testing.expectf(t, false, ...)`
 to fail with a message, and `core:log`'s `log.info`/`log.warnf` for test output.
 
-**`odin_port/dds` must stay graphics-API-free** — it currently imports only `core:mem` and builds
-for Linux/macOS/FreeBSD (`odin build odin_port/dds -target:linux_amd64 -build-mode:obj`).
-Never import `vendor:directx/*` there: dxgi link-depends on `system:dxgi.lib` and friends.
+**`odin_port/dds` must stay graphics-API-free** so file-format validation can be tested without
+a graphics device. Keep `vendor:directx/*` imports in the upload layer.
 The one exception is `format_dxgi_test.odin`, gated with `#+build windows`.
-Portable standard-library helpers, including `base:intrinsics` for checked arithmetic, are
+Standard-library helpers, including `base:intrinsics` for checked arithmetic, are
 allowed; preserve the package's lack of a graphics device, platform API and fatal-I/O policy.
+Validation targets this Windows DX12 project; cross-platform DDS builds are not required.
 
 `dxcompiler.dll` and `dxil.dll` are copied to the repo root (gitignored) to pin vendor DXC
 1.6.2112 ahead of the Vulkan SDK's copy on PATH — never invoke a bare `dxc`. Copy steps are in
@@ -239,6 +240,17 @@ keep new repeatable commands in the root Justfile and prefer Git Bash-compatible
 - Allocator lifetime fixes require deliberate GPU backlog and stable constant data until the
   consuming submission completes. A CPU allocator report or ordinary successful render cannot
   prove that fence ordering is correct.
+- `just test-gpu` enables `GRAPHICS_MEMORY_GPU_TESTS` in `common/graphics_memory_test.odin`.
+  It reads the 15 frame draw procedures' actual submit/commit order and replays each order with
+  a GPU copy held behind a CPU-released queue fence. A pre-gate marker removes timing guesses;
+  the test checks address reuse, readback bytes, and eventual reuse after completion. It also
+  fails on unexpected debug warnings/errors and uses Odin's test allocation tracker.
+  The source check intentionally recognizes the current straight-line procedure shape, not
+  arbitrary Odin syntax. Update the manifest/model when adding or restructuring a consuming
+  demo. It does not execute complete draw procedures or replace their visual/control checks.
+  The GPU suite is separate from `just validate`; missing device/debug-layer support is a
+  failure, not a skip. Fence waits have a five-second limit; a stalled queue terminates the
+  test process rather than releasing resources still in use or hanging indefinitely.
 - If Agility exports are added, verify them with `dumpbin /exports` and verify the loaded
   runtime location. The current port omits those exports based on its tested Windows setup.
 - For ImGui dependency regeneration, see `odin_port/README.md` for the verified restore
