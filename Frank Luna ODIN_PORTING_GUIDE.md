@@ -10,10 +10,9 @@ are a porting roadmap, not a claim that their Odin implementations are complete.
 
 Treat the reference packages as an answer key: write your own version first, then compare.
 The **Reference port** notes explain adaptations and what to look for in the result.
-The implementations still have [known issues](KNOWN_ISSUES.md), including allocator lifetime
-and a few demo defaults; expected book behavior below is not a claim that those fixes have
-already landed. Setup and run instructions are in [odin_port/README.md](odin_port/README.md).
-Agent procedures and diagnostic probes belong in [AGENTS.md](AGENTS.md).
+Setup, dependency versions and run instructions are in
+[odin_port/README.md](odin_port/README.md). Keep the matching C++ and HLSL beside the Odin
+source: comments identify deliberate adaptations, especially where ownership differs.
 
 ## The stack
 
@@ -22,10 +21,10 @@ Agent procedures and diagnostic probes belong in [AGENTS.md](AGENTS.md).
 | Win32 (`windows.h`)                                                                             | `core:sys/windows`                                                                       | Comprehensive; binds the wide (`...W`) variants                                                                                               |
 | D3D12 / DXGI                                                                                    | `vendor:directx/d3d12`, `vendor:directx/dxgi`                                            | Ships with the compiler. Covers everything the book uses, incl. DXR & mesh shaders — plus `IInfoQueue1` and DRED (see ch 4 side quest)        |
 | dxc COM API (runtime shader compile)                                                            | `vendor:directx/dxc`                                                                     | **Fully bound**, and `dxcompiler.dll`/`dxil.dll` ship in the vendor folder — the book's runtime-compile flow ports 1:1 |
-| DirectXMath / SimpleMath                                                                        | built-in `matrix[4,4]f32` + `[N]f32` arrays + `core:math/linalg`                         | Operator overloading exists! But conventions differ — read the Matrices section carefully                                                     |
+| DirectXMath / SimpleMath                                                                        | built-in `matrix[4,4]f32` + `[N]f32` arrays + `core:math/linalg`                         | Built-in matrix/array operators; conventions differ — read the Matrices section                                                     |
 | DirectXCollision                                                                                | *hand-roll* (small)                                                                      | Needed at ch 16–17                                                                                                                            |
-| Dear ImGui 1.85 + Win32/DX12 backends                                                           | community **Capati/odin-imgui** (bundles 1.92.x-docking, includes win32 + dx12 backends) | Not in vendor; the book's widget calls map 1:1                                                                                                |
-| DirectXTK12 (`ResourceUploadBatch`, `CreateStaticBuffer`, `DDSTextureLoader`, `GraphicsMemory`) | *hand-roll*                                                                              | Two small helpers — **plus a DDS parser**: nothing in `core:`/`vendor:` reads DDS, the port's biggest single gap (ch 9)                       |
+| Dear ImGui 1.85 + Win32/DX12 backends                                                           | vendored **Capati/odin-imgui** (1.92.8-docking, win32 + dx12 backends) | Not in vendor; the book's widget calls map 1:1                                                                                                |
+| DirectXTK12 (`ResourceUploadBatch`, `CreateStaticBuffer`, `DDSTextureLoader`, `GraphicsMemory`) | *hand-roll*                                                                              | Upload batch, static buffers, upload-page allocator and DDS parser; introduced in ch 6–9                       |
 | PPL (`parallel_for`)                                                                            | serial loop or `core:thread`                                                             | Only the CPU Waves demos (ch 7–12)                                                                                                            |
 | Agility SDK 614 (`D3D12SDKVersion` export)                                                      | deployment choice                                                                        | The tested setup uses the inbox runtime; required runtime, driver and GPU support still matter (ch 4)                                       |
 
@@ -84,16 +83,6 @@ line in the book ports literally:
 - **Transpose before every CB upload, exactly like the book** — `XMMatrixTranspose(...)` becomes
   `linalg.transpose(...)`, same line, same reason (row-major storage vs HLSL's column-major
   packing).
-
-Storage-vs-convention SIMD trivia: the docs' "column-major utilizes SIMD effectively" claim
-assumes Odin's native `M * v` convention; for row-vector `v * M`, row-major storage is the
-SIMD-friendly pairing — the same reason DirectXMath is row-major. At this book's scale the
-difference is noise; fidelity is the right basis for the choice.
-
-(Filed for after the book: with Odin's *default* column-major storage, a row-convention matrix's
-bytes come out as columns-of-R — exactly what HLSL wants — so the transpose step can be deleted
-entirely. It's a one-line alias change plus removing the transposes, once you no longer need
-your code to match the text.)
 
 **The cost of the row-vector convention:** don't mix in linalg's *matrix builders*
 (`matrix4_translate`, `matrix4_from_quaternion`, `matrix4_rotate`…) without transposing them
@@ -157,8 +146,8 @@ helper's name, it uses process exit, which skips Odin defers.
 Check a method's result before consuming its output. DXC illustrates two distinct results:
 did `Compile` return a usable result object, and did the compilation represented by that
 object succeed? Preserve both checks. Reusable helpers such as the DDS parser return errors;
-the demo decides whether those errors are fatal. See the unresolved DXC case in
-[KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+the demo decides whether those errors are fatal. The DXC helper deliberately checks failures
+earlier than the C++ sample, requires a DXIL blob, and treats debug PDB output as optional.
 
 ### d3dx12.h
 
@@ -183,8 +172,7 @@ bound** in `vendor:directx/d3d12`, so the ch 4 side quest needs no binding work.
 
 D3D/DXGI live-object reporting catches graphics COM leaks; `core:mem.Tracking_Allocator` catches Odin heap leaks —
 the analogue of the C++ demos' CRT debug-heap check. Worth wiring up as soon as you have a run
-loop, which in practice means ch 4; the reference port didn't get to it until ch 7 and
-promptly found a bug it had been carrying since ch 4 (below).
+loop; the reference enables it in debug builds from Chapter 4 onward.
 
 The shape is small enough to write once and forget (`common/mem_track.odin` in the reference
 port): wrap **both** `context.allocator` and `context.temp_allocator` at the top of `main` in
@@ -213,10 +201,9 @@ because D3D12 may invoke it from driver threads and `app_context` carries main's
 Two more details that make it correct:
 
 - **Per-frame `free_all(context.temp_allocator)`** at the bottom of the `d3d_app_run` loop.
-  Adding the tracker exposed a latent bug — nothing ever reset the temp arena, so
-  C7_Waves' per-frame vertex slice (~450 KB) grew it without bound. The arena answers
-  `.Free_All` to `Query_Features`, so the temp tracker sets `clear_on_free_all` and empties
-  its map each frame too; steady-state overhead is near zero.
+  Frame-local slices must be reclaimed after their CPU work finishes; otherwise the arena
+  grows every frame. Upload helpers copy those bytes into separately owned GPU buffers.
+  Resetting the temp arena also clears its tracking records.
 - **Init order:** `tracking_allocator_init` must run while `context.allocator` is still the
   raw heap allocator, so the trackers' own bookkeeping stays untracked. The tracker's mutex
   is not reentrant — self-tracking deadlocks.
@@ -224,22 +211,13 @@ Two more details that make it correct:
 The C1–C3 test packages need none of this: `odin test` already wraps each test in its own
 tracking allocator (`ODIN_TEST_TRACK_MEMORY`, on by default).
 
-### Knowing a demo is correct
+### Comparing your implementation
 
-Five checks per demo, and the last two are the ones that get skipped:
-
-1. **The render matches the C++.** Run the book's build alongside yours — framing, colors, and
-   camera should agree, not merely look plausible.
-2. **Repeated resizing still works.** A single resize proves nothing; the `OnResize`/`GetBuffer`
-   ref-counting trap (ch 4) usually survives one and dies on the fifth.
-3. **Escape exits cleanly**, with code 0. Note the book's `MsgProc` handles `VK_ESCAPE` on
-   `WM_KEYUP`, not `WM_KEYDOWN`.
-4. **No unexpected debug-layer messages appear.** Account for the documented static-buffer
-   warning in Chapter 6; a plausible image alone does not establish correct resource use.
-5. **Both active leak reports are clean** — graphics COM objects and Odin heap allocations.
-
-Confirm that the detectors actually ran. Silence from an unavailable detector says nothing
-about leaks. Controlled probes and repeatable validation procedures are kept in `AGENTS.md`.
+Compare framing, geometry, materials and controls with the matching C++ demo. Watch animated
+scenes over time; random disturbances and tree placement need not produce identical pixels.
+Try resizing and normal shutdown as well as the first frame. Use graphics diagnostics and
+Odin allocation tracking to check lifetimes that a plausible picture can hide. Each chapter
+below describes the behavior to look for; repeatable agent probes belong in `AGENTS.md`.
 
 ### Shaders
 
@@ -293,7 +271,7 @@ no load/store), `XMMATRIX`/`XMFLOAT4X4` → `d3d_math.Mat4` (ditto), quaternions
 | `XMMatrixIdentity()` | `matrix[4,4]f32(1)` | scalar → diagonal |
 | `XMMatrixScaling/Translation/RotationX/Y/Z` | your `d3d_math.odin` | type them from the book, row-vector form (see Matrices) |
 | `XMMatrixRotationAxis / RollPitchYaw` | `d3d_math.odin` | or `linalg.matrix4_from_quaternion` **transposed** |
-| `A * B`, `XMMatrixMultiply(A,B)` | `A * B` | operator overloading — same left-to-right order (row-vector path) |
+| `A * B`, `XMMatrixMultiply(A,B)` | `A * B` | built-in matrix multiplication — same left-to-right order (row-vector path) |
 | `XMMatrixTranspose(M)` | `linalg.transpose(M)` | still needed before CB upload (with `Mat4 :: #row_major …`) — same as the book |
 | `XMMatrixInverse(&det, M)` | `linalg.inverse(M)` | |
 | `XMMatrixDeterminant(M)` | `linalg.determinant(M)` | |
@@ -306,8 +284,8 @@ no load/store), `XMMATRIX`/`XMFLOAT4X4` → `d3d_math.Mat4` (ditto), quaternions
 | `XMQuaternionSlerp` | `linalg.quaternion_slerp` | ch 22 |
 | `XMMatrixRotationQuaternion` | `linalg.matrix4_from_quaternion` + `transpose` | column-convention output — transpose for the row-vector path |
 
-**Known gaps** (all small; the book derives each formula, so implementing them *is* the
-exercise):
+**Math helpers to implement** rather than translate into a direct library call. Several
+already exist in `odin_port/d3d_math`; later chapters extend them:
 
 - D3D-convention view/projection builders (`look_at_lh`, `perspective_fov_lh`,
   `ortho_off_center_lh`) — the core of your `d3d_math.odin`; Luna prints all of them
@@ -321,7 +299,8 @@ exercise):
 - **Ch 1 Vector Algebra** — vector rows above. Enjoy deleting every load/store call.
   **Reference port:** `odin_port/C1_XMVECTOR` (`odin test odin_port/C1_XMVECTOR`) — one
   `.odin` file per C++ variant (including the three commented-out mains), one `@(test)` each,
-  asserting values captured from the C++ demo's output. Float-compare helpers live in
+  asserting values captured from the C++ demo's output. The 3D teaching vectors use three
+  lanes and intentionally ignore DirectXMath's `w`. Float-compare helpers live in
   `odin_port/test_util`: exact values use `testing.expect_value`, while cout-rounded values
   use `expect_close` with eps sized to the 6th significant digit.
 - **Ch 2 Matrix Algebra** — matrix rows; `matrix[4,4]f32` semantics (column-major storage —
@@ -400,7 +379,7 @@ the book's Agility version, its exports have this shape:
 ```
 
 …with the matching runtime files in `.\D3D12\`. Keep the SDK version and deployed files in
-agreement. Export/runtime verification procedures are in `AGENTS.md`.
+agreement; the exported version selects the runtime you deploy.
 
 **ComPtr traps concentrated in this chapter — the full list:**
 
@@ -457,7 +436,7 @@ hooks the message pump first, as in `MainWndProc`.
 Shutdown order matters here and bites quietly: ImGui before the heap before the base, so the
 SRV free callbacks still have a live heap to release into.
 
-Dependency restoration, version pinning and the recorded ImGui build workaround are covered
+Dependency restoration and version pinning are covered
 in [odin_port/README.md](odin_port/README.md).
 
 #### Reading graphics diagnostics
@@ -574,7 +553,7 @@ are lazy, so earlier demos pay only for its fence.
 submitting every command that consumes the pages. C++ resource handles retain page references;
 the Odin handle contains only a GPU address. That simplification requires a different commit
 order: **allocate and record → submit → commit → reuse after fence completion**. The frame
-draw paths now follow this order. Retaining an Odin handle variable does not retain its
+draw paths follow this order. Retaining an Odin handle variable does not retain its
 page. A fence signaled before a draw cannot prove that draw finished; the later signal is
 what makes this smaller ownership model work without the C++ reference-counted handles.
 
@@ -617,8 +596,7 @@ is the single easiest way to turn a clean port into a heisenbug.
 Smaller notes: land geometry is a MeshGen grid plus the hills height function and
 height-banded vertex colors; water indices use **R32_UINT** to match C++. The 128×128 grid has
 16,384 vertices, so its indices could fit in 16 bits: index count is not index-element width.
-The existing code comments claiming otherwise are pending cleanup. Finally,
-`MathHelper::Rand`/`RandF` map to `core:math/rand`'s `int_max` (mind the `+1` — the book's
+Finally, `MathHelper::Rand`/`RandF` map to `core:math/rand`'s `int_max` (mind the `+1` — the book's
 range is inclusive) and `float32_range`.
 
 Correct looks like: ripples that actually animate and interfere, hills banded sand through
@@ -870,8 +848,6 @@ solution to displace the water grid. Descriptor indices must follow those roles 
 This sample starts with speed **3.5** and damping **0.3**, matching `WavesCSApp.h` rather
 than the earlier CPU-wave defaults. Compare how disturbances spread and settle before
 changing the sliders; a single still frame cannot show the simulation's behavior.
-The current port's speed/damping defaults differ from C++; that pending correction is in
-[KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 **Watch out:** preserve the book's transitions and UAV ordering between dependent dispatches.
 A readable frame does not establish that the GPU saw every write before its consumer.
@@ -898,7 +874,10 @@ and phi `0.42 * PI`. The first right-drag should change the view smoothly, witho
 
 ---
 
-## Part III — Topics
+## Part III — Roadmap for Chapters 15–27
+
+These notes identify what to port next; the repository has no Odin reference packages for
+these chapters yet. Verify details against each matching C++ sample as you reach it.
 
 ### Ch 15 — First Person Camera
 
@@ -911,7 +890,7 @@ control model with first-person movement using `d3d_math` and linalg.
 **Port first:**
 
 - The book centralizes shaders/PSOs here (`ShaderLib`/`PsoLib`) — in Odin these are natural
-  tables: `map[string]^dxc.IDxcBlob` and a PSO-desc table.
+  tables: `map[string]^dxc.IBlob` and a PSO-desc table.
 - **`collision.odin`**: `Bounding_Box` (center/extents), `Bounding_Frustum` from the projection
   matrix, box-vs-frustum test. Book explains the plane math; `DirectXCollision.h` is the
   reference if stuck.
@@ -948,8 +927,8 @@ Nothing structural — tangents (already in `MeshGen`) + more DDS. Breather; pay
 **New this chapter:**
 
 - `ShadowMap` helper: depth-only pass, DSV+SRV on one resource, null RTV, viewport switch.
-- Depth-bias PSO — book values are NVIDIA-tuned; tweak `DepthBias`/`SlopeScaledDepthBias` on
-  the 9070 XT if you see acne. Expected variance, not a bug.
+- Depth-bias PSO — start with the book's `DepthBias`/`SlopeScaledDepthBias`. If you see
+  shadow acne, first check the light projection, depth format and scene scale before tuning.
 - `ortho_off_center_lh` lands in `d3d_math.odin` (the chapter derives it).
 
 **Watch out:** shadow map state ping-pongs `DEPTH_WRITE` ↔ `PIXEL_SHADER_RESOURCE` every frame.
@@ -981,16 +960,13 @@ mismatch the matrix layer already fights, now wearing a quaternion:
   (`quat_concat :: proc(first, second) -> ... { return second * first }`) with a `// C++:` note
   so call sites read in book order.
 - **`matrix4_from_quaternion` is transposed**, exactly like every other linalg builder — it emits
-  the column-vector / column-major form. `transmute` it to `Mat4` (same trick as the matrix
-  builders), or spell the conversion out from the book's formula.
+  the column-vector form. Use `Mat4(linalg.transpose(linalg.matrix4_from_quaternion(q)))`
+  to change convention explicitly and store the result in the port's row-major type.
+  A byte reinterpretation can conflate these two steps; explicit transpose and conversion
+  keep their separate purposes visible.
 
-Both caveats are artifacts of porting a *row-vector* book onto Odin's *column-vector-native*
-stdlib — not defects. **Under a future column-vector/column-major engine they evaporate:** the
-built-in `*` already composes right-to-left, which is what column-vector matrices do too (last
-rotation on the left, for both), so the swap helper is gone; and `matrix4_from_quaternion`
-returns exactly the matrix you want, so the transmute is gone. (Projection depth range `[0,1]`
-vs linalg's GL `[-1,1]` is the one wrapper that survives the switch — but that's a camera issue,
-unrelated to quaternions.)
+Check composition with a point rotated about two different axes: reversing the order should
+change the result. This makes the convention difference visible before animation obscures it.
 
 ### Ch 23 — Character Animation  *(SkinnedMesh)*
 
@@ -1065,7 +1041,7 @@ there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struc
 | dxc `compile_shader` + shader table | ch 6 | small | `d3dUtil::CompileShader` + `ShaderLib` (bindings pre-exist) |
 | `mesh_gen.odin` (box/grid/sphere/geosphere/cylinder/quad) | ch 7 | medium | book's `MeshGen` |
 | Linear upload arena + `Frame_Resource` ring | ch 7 | medium | DirectXTK12 `GraphicsMemory` + book's Common |
-| `mem_track.odin` (Tracking_Allocator wiring) | ch 7 | tiny | CRT debug-heap leak check |
+| `mem_track.odin` (Tracking_Allocator wiring) | ch 4 | tiny | CRT debug-heap leak check |
 | `geometry_builders.odin` (`ModelVertex`, `Material`, shape + skull builders) | ch 8 | small | `d3dUtil::BuildShapeGeometry`/`BuildSkullGeometry` |
 | `dds` package (pure parser + tests; grow formats per chapter) | ch 9 | medium | DirectXTK12 `DDSTextureLoader` "Load" half + `LoaderHelpers` |
 | `common/texture_upload.odin` (footprint upload) | ch 9 | small | DirectXTK12 `DDSTextureLoader` "Create" half + texture path of `ResourceUploadBatch` |
@@ -1078,131 +1054,11 @@ there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struc
 | `.raw` heightmap reader | ch 24 | tiny | book code |
 | Pipeline-state-stream struct | ch 26 | small-fiddly | `CD3DX12_PIPELINE_STATE_STREAM` |
 
-## What Odin gives you, and what you build yourself
+## Further reading
 
-Two things shape the whole port, and it's worth knowing both before you start.
-
-**What comes for free.** `vendor:` ships with the compiler, so D3D12, DXGI, DXC, and dxgidebug
-are all present and version-matched — including `ID3D12InfoQueue1` and DRED, which reduces the
-debug-output side quest to about a dozen lines. dxc being fully bound means the book's runtime
-shader-compile flow ports 1:1 and you keep edit-shader-and-rerun iteration with no build step.
-Operator overloading keeps matrix and vector math reading like the book rather than like
-function calls.
-
-Best of all, the load/store split disappears: `XMFLOAT3` versus `XMVECTOR`, and every
-`XMLoadFloat3`/`XMStoreFloat3` pair in the book, collapses into one `[3]f32` that both stores
-and computes. With `Mat4 :: #row_major matrix[4,4]f32` the matrix side is byte-identical to
-`XMFLOAT4X4`, so even the transpose-on-upload line survives verbatim.
-
-**What you build yourself.** A **DDS loader** fills a gap in `core:` and `vendor:`. Start with
-the formats needed by chapter 9, separate parsing from uploading, and validate malformed
-headers as well as the book's assets. You also need **D3D-convention matrix builders**,
-because `core:math/linalg`'s are GL-flavored column-vector: view, projection, and rotation
-come from your own `d3d_math.odin`,
-typed from the forms Luna prints, with linalg demoted to vectors, quaternions, and
-convention-agnostic operations. The inventory above shows how these helpers grow as the
-book introduces new requirements.
-
-## Things to learn next
-
-The book ends where a working renderer begins. What follows is weighted toward the *quiet*
-gaps — headline features advertise themselves, and you'll meet them in a blog post eventually.
-The danger is finishing all 27 chapters without ever learning that a cleaner way exists.
-
-A ✅ marks an entry available in the compiler's D3D12 bindings when this guide was reviewed.
-Bindings, runtime support and device support are separate questions. These are optional
-topics for after the book; keep their API and feature checks beside any future implementation.
-
-### You could finish the book and never know these exist
-
-**Enhanced barriers.** The book uses legacy `ResourceBarrier` throughout — 134 calls, each
-packing pipeline stage, access, and memory layout into one `D3D12_RESOURCE_STATES` value.
-[Enhanced barriers](https://microsoft.github.io/DirectX-Specs/d3d/D3D12EnhancedBarriers.html)
-split those into three independent axes and delete the implicit state promotion/decay rules,
-which are the subtlest corner of the legacy model.
-✅ `IGraphicsCommandList7.Barrier`, `BARRIER_GROUP`, `TEXTURE_BARRIER`, `BARRIER_LAYOUT`.
-
-**Heaps and placed resources.** Every resource in the book is a *committed* resource — there is
-not a single `CreateHeap` in the tree.
-[Suballocation within heaps](https://learn.microsoft.com/en-us/windows/win32/direct3d12/suballocation-within-heaps)
-is how you get arena-style bulk allocate-and-free (one heap per level, reset on unload), and
-[D3D12MA](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator) is the industrial
-version for when per-object lifetimes outgrow that.
-✅ `CreateHeap`, `CreatePlacedResource`, `CreateReservedResource`.
-
-**Copy and compute queues.** The book never leaves a single `DIRECT` queue — even
-`ResourceUploadBatch->Begin()` is handed `D3D12_COMMAND_LIST_TYPE_DIRECT`.
-[Multi-engine synchronization](https://learn.microsoft.com/en-us/windows/win32/direct3d12/user-mode-heap-synchronization)
-is where the frame-resource fencing from ch 7 stops being boilerplate and starts earning its
-keep: uploads and async compute overlapping with graphics instead of serialized behind it. ✅
-
-**Residency, as management rather than readout.** Every demo polls `QueryVideoMemoryInfo` and
-prints Budget / CurrentUsage in its ImGui panel — but nothing ever *acts* on the numbers.
-[Residency](https://learn.microsoft.com/en-us/windows/win32/direct3d12/residency) is the other
-half: `MakeResident`/`Evict`, and deciding what to drop when you exceed budget. ✅
-
-**DRED.** No demo handles device-removed beyond failing. Device Removed Extended Data gives you
-GPU-side [breadcrumbs and page-fault data](https://learn.microsoft.com/en-us/windows/win32/direct3d12/use-dred)
-— which command actually died, and which address it touched. This is the answer to "GPU crashes
-are undebuggable," and it costs a few dozen lines.
-✅ `IDeviceRemovedExtendedDataSettings`, `AUTO_BREADCRUMB_NODE`.
-
-**GPU-based validation.** Already in the book's own source, one comment away — see
-`debugController1->SetEnableGPUBasedValidation(true);` in `Common/d3dApp.cpp`. It's slow, so
-it's dev-only, but it catches what the regular debug layer can't: notably out-of-bounds
-descriptor indexing, which the 2nd edition's bindless design makes genuinely reachable.
-[Docs](https://learn.microsoft.com/en-us/windows/win32/direct3d12/using-d3d12-debug-layer-gpu-based-validation).
-✅ `IDebug1`, `IDebug3`.
-
-### Worth knowing exist
-
-- **[Native 16-bit shader ops](https://github.com/microsoft/DirectXShaderCompiler/wiki/16-Bit-Scalar-Types)** —
-  real `float16_t`/`int16_t` in HLSL (SM6.2, `-enable-16bit-types`), as opposed to the old
-  `min16float` hints a driver could quietly ignore. Half the register pressure means better
-  occupancy, and some hardware runs packed 16-bit math at double rate. The natural uses are
-  post-processing and anything already stored small — blur, tonemapping, bloom, SSAO, normals,
-  colors — and the thing to keep at 32-bit is positions, depth, and long accumulations.
-  ✅ `OPTIONS4.Native16BitShaderOpsSupported`
-- **[Variable rate shading](https://microsoft.github.io/DirectX-Specs/d3d/VariableRateShading.html)** —
-  shade coarser than per-pixel. Measure the quality/performance tradeoff with your actual
-  content and reconstruction pipeline. ✅ `RSSetShadingRate`
-- **[Sampler feedback](https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html)** —
-  the GPU records which mips/tiles it actually sampled, so you stream in exactly those instead
-  of guessing. Pays off only when your textures don't all fit in VRAM — and even then, Sawicki's
-  read is that most games should skip the *hardware* feature: working out the wanted mip yourself
-  in a shader matches your own streaming granularity exactly and doesn't narrow your minimum spec.
-  Worth understanding as a technique; optional as a DX12 feature. ✅ `SAMPLER_FEEDBACK`
-- **[GPU upload heaps](https://microsoft.github.io/DirectX-Specs/d3d/D3D12GPUUploadHeaps.html)
-  and [DirectStorage](https://github.com/microsoft/DirectStorage)** — different parts of the
-  data path. GPU upload heaps can put CPU-written data in GPU-local memory; query
-  `OPTIONS16.GPUUploadHeapSupported` before using them. DirectStorage addresses asset I/O
-  and can use GPU decompression. It does not replace the transient CPU-written constants
-  taught in chapter 7. ✅ `HEAP_TYPE.GPU_UPLOAD`; DirectStorage is a separate SDK and requires
-  separate bindings/integration.
-- **[Work graphs](https://microsoft.github.io/DirectX-Specs/d3d/WorkGraphs.html)** — GPU-driven
-  work generation. Hardware support is still thin, and Odin binds only the `WORK_GRAPHS_TIER`
-  feature query, not the dispatch API — you'd be writing bindings first. ⚠️
-- **PSO caching and partial graphics programs** — shader-compilation stutter is the classic
-  shipping problem the book never hits, because it builds a handful of PSOs at startup while a
-  real game has thousands. `ID3D12PipelineLibrary` ✅ is the in-box answer today;
-  [partial graphics programs](https://devblogs.microsoft.com/directx/partial-graphics-programs/)
-  are the more interesting new one — compile the shared prerasterization and pixel-shader halves
-  once into a collection, then late-link them against the varying state (blend, say) and
-  `SetProgram()` before the draw, so N variants stop costing N full compiles. That pays off in
-  development too, not just at ship: editing a pixel shader only invalidates its half, so a
-  hot reload rebuilds less.
-  ⚠️ Odin binds the DXR-era `STATE_OBJECT_DESC` / `STATE_OBJECT_TYPE.COLLECTION` scaffolding but
-  not the partial or generic program subobjects, and `SetProgram` lives on
-  `IGraphicsCommandList10` where Odin stops at 7 — bindings to write first.
-
-For evolving GPU debugging tools, check the current PIX and DirectX release notes when you
-need them. Keep preview requirements separate from the book's working setup.
-
-### Where to look things up
-
-- [Direct3D 12 programming guide](https://learn.microsoft.com/en-us/windows/win32/direct3d12/directx-12-programming-guide) — the reference baseline.
-- [DirectX-Specs](https://microsoft.github.io/DirectX-Specs/) — where features land *first*, and often the only real documentation for anything recent.
-- [D3D11.3 functional spec](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm) — still the best source on alignment and resource rules D3D12 inherited wholesale.
-- [DXC wiki](https://github.com/microsoft/DirectXShaderCompiler/wiki) and [hlsl-specs](https://github.com/microsoft/hlsl-specs) — shader model details and proposed language features.
-- [DirectX developer blog](https://devblogs.microsoft.com/directx/) — Agility SDK releases and tooling news.
-- Adam Sawicki's [state of GPU hardware](https://asawicki.info/articles/state_of_gpu_hardware_2025.php) for deciding minimum spec, [sources of DX12 documentation](https://asawicki.info/news_1794_all_sources_of_directx_12_documentation), and [GDC 2026 commentary](https://asawicki.info/news_1801_directx_12_news_from_gdc_2026_-_my_comments).
+Use the matching C++ source and unchanged HLSL as your primary references while working
+through the book. For API contracts, consult the
+[Direct3D 12 programming guide](https://learn.microsoft.com/en-us/windows/win32/direct3d12/directx-12-programming-guide)
+and the [DXC documentation](https://github.com/microsoft/DirectXShaderCompiler/wiki).
+Modern features such as enhanced barriers, multiple queues and resource suballocation can
+wait until you have understood the book's lifetime and synchronization model.

@@ -8,11 +8,13 @@ Documentation boundaries:
 
 - `Frank Luna ODIN_PORTING_GUIDE.md`: concepts, C++/Odin mappings, chapter dependencies,
   deliberate adaptations, and what the learner should observe. Keep explanations useful to
-  someone implementing their own version; link to the issue ledger for unresolved defects.
+  someone implementing their own version; keep resolved-defect history out of the guide.
 - `odin_port/README.md`: human-facing setup and run instructions, including dependency restore.
 - `AGENTS.md`: agent scope, implementation/review policy, commands, probes, and detector setup.
-- `KNOWN_ISSUES.md`: validated defects, evidence, priority, proposed remedies and acceptance
-  criteria. A proposed fix is not an implemented fix; record verification dates and limits.
+- Put the reason for a deliberate C++ deviation beside the implementation. Tests preserve
+  regression cases; commit messages preserve the problem, validation and limits. Report new
+  unresolved findings with a concrete failing case and remedy; do not recreate a resolved-issue
+  archive as a dependency of the guide or routine workflow.
 
 ## What this repo is
 
@@ -45,11 +47,11 @@ to the other, and don't edit the other port's guide unasked.
 - Prefer fixes in this order: restore reference behavior; make necessary Odin adaptations;
   add focused boundary validation. Keep broader refactoring separate. Preserve the per-demo
   organization, row-vector convention, native arrays and explicit resource ownership.
-- A documentation-only go-ahead does not authorize implementation changes. Keep proposed code
-  work in `KNOWN_ISSUES.md` until the user approves that work.
-- Finish a demo by verifying it end-to-end (below), then updating the guide, `odin_port/README.md`
-  if the run steps changed, and relevant entries in `KNOWN_ISSUES.md`. These tracked documents
-  are the durable project record; do not invent an unspecified external "memory" destination.
+- A documentation-only go-ahead permits documentation and explanatory comments, not behavior
+  changes. Present proposed implementation work for approval unless already authorized.
+- Finish a demo by verifying it end-to-end (below), then update the guide if its teaching
+  explanation changed and `odin_port/README.md` if setup/run steps changed. Record verification
+  and its limits in the commit description. Do not invent an external "memory" destination.
 
 ## Code Review Rules
 
@@ -72,8 +74,8 @@ to the other, and don't edit the other port's guide unasked.
 - Preserve the book's resource lifetime model where Odin and Direct3D 12 permit it. Do not infer C++
   behavior from familiarity when the matching source is available.
 - Trace changed values through their actual consumers, including shaders, before assigning
-  impact. The Chapter 14 light strengths differ from C++, but both tessellation pixel shaders
-  return constant white: matching those unused values is parity cleanup, not a shading fix.
+  impact. Both Chapter 14 tessellation pixel shaders return constant white: changes to their
+  unused light strengths cannot establish a shading fix.
 - Keep attribution current when copying demos. C++ comments should name the matching source
   and explain the current code, not retain another chapter's defaults or obsolete scaffolding.
 
@@ -177,11 +179,53 @@ when changing their memory/indexing paths. `dds.layout_size` validates metadata 
 
 **Known-benign stderr:** one `id 1328` warning per `create_static_buffer` call
 (`CreateCommittedResource: Ignoring InitialState D3D12_RESOURCE_STATE_COPY_DEST`) — 2–5 per
-run in chapters 6–9, up to seven in the tested later demos. The baseline counts are in
-`KNOWN_ISSUES.md`. DDS texture uploads add none
-(textures really are created in COPY_DEST). DirectXTK12 does the same thing and the C++ demos
+run in chapters 6–9, up to seven in the tested later demos (baseline below). DDS texture
+uploads add none (textures really are created in COPY_DEST). DirectXTK12 does the same thing and the C++ demos
 emit them too, invisibly — ours are only visible because InfoQueue1 pipes to stderr. Don't
 "fix" them.
+
+### Established baseline and focused regressions
+
+As of 2026-09-06 local date (2026-09-07 UTC), the resolved audit ends at `3800ca3`.
+Odin `dev-2026-09-nightly:a2fb372` and Just 1.58.0 passed 52 release/debug checks and
+37 tests (10 math, 24 DDS, three shared loading-boundary tests). `just test-gpu` additionally
+passed 15 upload-retirement scenarios. All 19 apps had a debug runtime baseline; affected
+apps were rerun after their fixes, including six resizes, Escape exit 0, and no unexpected
+D3D12/COM/Odin diagnostics. The unchanged diagnostic plumbing was positively tested with
+application messages, invalid resource states and deliberate COM/Odin leaks.
+
+Runtime configuration: Windows x64, AMD Radeon RX 9070 XT, driver 32.0.31041.1004,
+150% scaling, DXC 1.6.2112.16 / DXIL 101.6.2112.13. GPU-based validation is off by default;
+selected allocator-fix runs also passed with it enabled. These results do not certify other
+hardware, drivers or release-runtime paths. Git history retains the detailed audit evidence.
+
+Expected static-buffer warning counts for that baseline:
+
+| Demo(s) | id 1328 count per run |
+| --- | ---: |
+| Appendix A, Init_Direct3D | 0 |
+| Box, BoxGrid, Shapes, Crate, BasicTessellation, BezierPatch | 2 |
+| Waves, LitWaves | 3 |
+| LitShapes, TexturedShapes, Stenciling | 4 |
+| TexWaves, BlendDemo, VecAddCS | 5 |
+| Blur, WavesCS | 6 |
+| BillboardsGS | 7 |
+
+Counts follow static-buffer creation; recompute them when geometry changes. Appendix A has
+no D3D12 or Odin tracking setup and is excluded from graphics-detector requirements.
+
+Preserve these deliberate adaptations when revisiting the corresponding code:
+
+- `graphics_memory.odin`: the address-only handle does not retain a page. Submit consumers
+  before `commit` on the same queue; use `just test-gpu` after changing retirement or draw order.
+- `dds/dds.odin` and `texture_upload.odin`: preflight file layouts before allocating; keep
+  format/arithmetic rules separate from D3D12 resource limits. Use malformed inputs, not only assets.
+- `d3d_util.odin`: check DXC method HRESULTs and the separate shader status; require DXIL,
+  tolerate absent PDB outputs. When changing this boundary, repeat isolated failures for Compile,
+  nil result, GetStatus and shader status, plus successful compilation without `-Zi`.
+- `geometry_builders.odin`: validate skull counts and indices before allocation/narrowing/GPU
+  creation, even though the book trusts its bundled model. `just test-upload` covers both DDS
+  and skull boundaries. Deliberate fatal-error probes should exit 1 with stderr/MessageBox output.
 
 ## Verifying a demo
 

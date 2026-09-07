@@ -197,6 +197,10 @@ init_default_pso :: proc(
 // See "HLSL Compiler | Michael Dougherty | DirectX Developer Day"
 // https://www.youtube.com/watch?v=tyyKeTsdtmo
 // The caller owns (and Releases) the returned DXIL blob.
+// Deliberate boundary adaptation: unlike the book sample, check method HRESULTs before
+// consuming outputs, then check the separate shader status. DXIL is required; PDBs are
+// optional diagnostics. Keep failures in the demo's report_error + exit policy, so a
+// compiler failure reports its cause instead of becoming a nil-interface dereference.
 compile_shader :: proc(filename: string, compile_args: []string) -> ^dxc.IBlob {
 	if !os.exists(filename) {
 		// C++: OutputDebugString + MessageBox; report_error covers both channels.

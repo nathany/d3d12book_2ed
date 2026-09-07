@@ -17,8 +17,6 @@ against DirectXTK12), `test_util`, and the vendored `libs/imgui`.
 
 Verified on 2026-09-06 with **Odin `dev-2026-09-nightly:a2fb372`** and **just 1.58.0**
 on Windows x64. Check `odin version` and `just --version` when changing toolchains.
-The current runtime baseline and its remaining parity differences are recorded in
-[`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md#validation-evidence-and-remaining-checks).
 
 Use the repository's root Justfile from Git Bash so windowed demos find their shaders and runtime
 DLLs without additional path handling:
@@ -34,7 +32,7 @@ just run C7_Waves                 # debug layer, stderr validation, COM leak rep
                                   # and Odin tracking allocator (common/mem_track.odin)
 just check C7_Waves               # release and debug type checks
 just build-asan C13_VecAddCS      # sanitizer build goes to the session temp directory
-just validate                     # all Windows type checks, math/DDS and upload-limit tests
+just validate                     # all Windows type checks, math/DDS and loading-boundary tests
 just test-gpu                     # additional opt-in D3D12 upload-lifetime regression
 ```
 

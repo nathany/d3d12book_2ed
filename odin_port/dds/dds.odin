@@ -8,6 +8,11 @@
 // the bits through an upload heap — lives in `common/texture_upload.odin`, which is what
 // keeps this package testable without a GPU.
 //
+// Deliberate boundary adaptation: preflight the complete layout and payload length before
+// allocating or walking subresources, including caller-constructed Texture_Info values.
+// DirectXTK12's file/surface limits remain; wide intermediates prevent wrapped counts from
+// bypassing them. D3D12 resource limits belong to the upload layer, not this parser.
+//
 // Errors are returned, never fatal: the demos' fail-fast policy (report_error + exit)
 // belongs to the caller, not to a parser that tests need to drive with malformed input.
 package dds

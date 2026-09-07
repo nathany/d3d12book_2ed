@@ -5,9 +5,22 @@ is the **parsing half** only: DDS bytes in, a `Texture_Info` and a per-surface l
 No Direct3D device, no GPU, no file-I/O policy, no `os.exit`.
 
 ```odin
-data, _ := os.read_entire_file("Textures/WoodCrate01.dds", context.allocator)
+// Inside a procedure; imports: core:os, core:fmt and this package as dds.
+data, read_err := os.read_entire_file("Textures/WoodCrate01.dds", context.allocator)
+if read_err != nil {
+    // Report or return the file error according to your application's policy.
+    return
+}
+defer delete(data)
 info, subresources, err := dds.parse(data, context.allocator)
-// info.format == .BC3_UNORM, info.mip_levels == 10, len(subresources) == 10
+if err != .None {
+    // Report or return the parse error before consuming the metadata.
+    return
+}
+defer delete(subresources)
+// Use info and subresources while data remains alive: offsets refer into data.
+// This asset has format .BC3_UNORM and ten mip levels.
+fmt.println(info.format, info.mip_levels, len(subresources))
 ```
 
 The Direct3D 12 half — creating the resource, re-pitching rows into an upload heap, and
@@ -24,7 +37,8 @@ DirectXTK12 splits the same way, which is where the shape came from:
 
 Ours splits harder: DirectXTK12's `Load*` still takes an `ID3D12Device` because it creates
 the resource, while this package touches no D3D12 type at all. That is what lets the parser
-be unit-tested with no GPU and no assets (`odin test odin_port/dds`, from the repo root).
+be unit-tested with synthetic bytes and no GPU. The full `just test dds` suite also reads
+bundled assets, so run it from the repo root.
 
 Errors are **returned, not fatal**. The demos' fail-fast convention (`report_error` then
 exit) belongs to the caller — a parser that tests feed malformed input to can't be the thing
@@ -111,40 +125,26 @@ adding a table row, never debugging a corrupt texture.
 outside it returns `.Unsupported_Format` rather than guessing a stride — the failure mode
 that matters, since a wrong stride uploads a skewed texture instead of erroring.
 
-## Validation
+## Tests and reference comparison
 
-**1. Byte-for-byte against DirectXTK12.** The two functions where a table typo would
-silently corrupt a texture — `GetDXGIFormat` and `GetSurfaceInfo` — are `inline` in
-DirectXTK12's `Src/LoaderHelpers.h`, so a C++ harness can call *their* code (plus their
-`LoadTextureDataFromFile`) and dump, per file: format, dimensions, mip count, array size,
-cube flag, data offset, and every subresource's offset / bytes / row pitch / rows. Diffed
-against the same dump from `dds.parse`:
+Run from the repository root:
 
-> **101 files, 1365 subresources, zero differing lines.**
+```bash
+just test dds       # synthetic layouts, malformed inputs and all bundled DDS assets
+just test-upload   # D3D12 metadata limits (also includes skull boundaries)
+```
 
-That's all 100 book textures plus `TropicalSunnyDay.dds` from Jason Zink's *Hieroglyph3* (a
-Direct3D 11 book) — a different asset pipeline, and the only file on hand combining a legacy
-BGRA cubemap with `mip_map_count == 0`.
+Both run in `just validate` without a graphics device. The parser tests cover format mappings,
+row/surface overflow, cube expansion, mip/array sums, final offsets, truncation and allocation
+failure. A panic allocator proves invalid/truncated files fail before allocation. The bundled
+file test verifies `data_offset + sum(subresource.size) == file size` for all 100 textures;
+`format_dxgi_test.odin` checks all 51 local enum values against the installed DXGI bindings.
+Rendering the textured demos checks the separate upload and sampling path.
 
-To re-run: build `oracle.cpp` (kept out of the repo; needs `External/DirectXTK12` from the
-C++ demos' NuGet restore) with `/I External/DirectXTK12/Src /I External/DirectXTK12/Inc`,
-feed it a list of `.dds` paths, and diff against the same dump from `dds.parse`.
-
-**2. A size identity over every file**, in `dds_files_test.odin` — walking the surfaces must
-consume each file *exactly*: `data_offset + Σ subresource.size == file size`. Independent of
-DirectXTK12 (the file itself is the oracle), and it catches a wrong block size, a missed mip,
-a bad array count, or an off-by-one in the mip chain. All 100 book files pass, 439 MiB total.
-
-**3. The demos render.** Chapter 9's crate, tiled floor, and scrolling water are the
-end-to-end proof that the bits land where the sampler expects them.
-
-Plus the enum cross-check above: all 51 `Format` members against `vendor:directx/dxgi`.
-
-**4. Malformed-input boundaries.** The arithmetic regressions cover row/surface overflow,
-cube expansion, subresource counts, mip/array sums, final offsets, truncation and allocation
-failure. A panic allocator proves invalid/truncated files are rejected before allocation.
-Run `just test dds` for these and the bundled-file tests, and `just test-upload` for the
-D3D12 metadata limits. Neither command creates a graphics device; both run in `just validate`.
+An earlier one-off C++ oracle comparison against DirectXTK12 matched 101 files and 1,365
+subresources, including one external legacy cubemap fixture. That harness and external asset
+are not tracked and are not prerequisites for the checked-in suite. The permanent tests above
+are the repeatable checks; the historical comparison does not cover every malformed input.
 
 ## Layout notes worth knowing
 
