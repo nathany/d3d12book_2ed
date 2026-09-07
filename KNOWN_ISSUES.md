@@ -1,9 +1,9 @@
 # Known Issues
 
 Issues originally recorded on 2026-08-11, revalidated against the Odin port, matching
-C++ demos, shaders, and vendored DirectXTK12 on 2026-09-06. **Graphics-memory retirement and
-DDS layout arithmetic are fixed; other fixes remain proposed and unapplied.** See each entry's
-status and verification evidence. Further issue fixes still need their own go-ahead.
+C++ demos, shaders, and vendored DirectXTK12 on 2026-09-06. Fixed issues are marked ✅ below;
+each entry records its implementation status and verification evidence. The user authorized
+the remaining issues to be fixed and verified one at a time, with a separate commit per issue.
 
 This ledger separates defects from their priority in a learning-oriented project. A successful
 run on bundled assets does not disprove a failure path; a different constant does not prove
@@ -19,7 +19,7 @@ a visual defect unless a shader or another consumer uses it.
 | --- | --- | --- | --- |
 | Graphics-memory page retirement | ✅ Fixed, P1 | Lifetime lost in DirectXTK12 reduction | Small ordering change across 15 frame draw paths |
 | DDS layout arithmetic | ✅ Fixed, P2 | Validation omitted or weakened in reduced loader | Bounded parser arithmetic and upload-limit checks |
-| DXC method failure | Source-confirmed, P2 | Weakness also present in book C++ | Small shared-helper change |
+| DXC method failure | ✅ Fixed, P2 | Weakness also present in book C++ | Small shared-helper change |
 | Billboard transparent depth | Source-confirmed, P2 | Missing C++ PSO assignment | One assignment restores parity |
 | WavesCS defaults | Source-confirmed, P2 | Earlier demo defaults copied | Two values restore parity |
 | BasicTessellation zoom | Source-confirmed, P2 | Crate controls copied | Restore scales and clamp bounds |
@@ -168,26 +168,29 @@ texture layouts are unchanged; parser/API limits remain separate for readers fol
 
 ## P2: A failing DXC `Compile` call dereferences a nil result
 
+**Status: ✅ Fixed on 2026-09-06 local date (2026-09-07 UTC).**
+
 Affected code: `odin_port/common/d3d_util.odin`, `compile_shader`.
 
 If `IDxcCompiler3::Compile` itself returns a failing HRESULT, its `IResult` output may stay
-nil. The current code still registers `result->Release` and calls `result->GetOutput` before
+nil. Before the fix, the code registered `result->Release` and called `result->GetOutput` before
 passing the HRESULT to `hr_panic`, turning the failure into an access violation. The HRESULT
 returned by `IResult::GetStatus` is also ignored. The book's `Common/d3dUtil.cpp` contains
 the same method-failure/status-handling weaknesses: inherited defensive debt, rather than
 a difference in the successful compilation path.
 
-Suggested fix:
+Implemented: check the `Compile` HRESULT and required result before use or deferred release;
+check the `GetStatus` HRESULT separately from the shader status. Error-output retrieval is
+checked, required DXIL output is validated, and optional PDB outputs are released only when
+present. The existing fatal-on-diagnostics policy and stderr/MessageBox reporting are preserved.
 
-- Check the `Compile` HRESULT and require a non-nil result immediately after the call.
-- Only register `Release` after that validation.
-- Check the HRESULT from `GetStatus` separately, then inspect the compilation status and
-  diagnostic output.
-- Preserve the existing stderr and `MessageBoxW` fatal-error reporting behavior.
-
-This is a small shared-helper change; preserve the current shader-warning policy and
-startup flow. Add a failure-path test or temporary fault injection that proves a method-level `Compile`
-failure reports the HRESULT without dereferencing the output.
+Verification on `dev-2026-09-nightly:a2fb372`: isolated copies injected a failing Compile
+HRESULT with nil output, success with nil result, a failing GetStatus method, and a failing
+shader status. All four displayed the expected MessageBox/stderr diagnostic and exited 1
+without dereferencing a nil output. Normal compilation without `-Zi` exited 0, also exercising
+absent optional PDB output. No fault-injection code remains in the repository. `just validate`
+passed; the debug Box demo rendered, survived six resizes, and exited 0 through Escape with
+only its two expected id 1328 messages and no unexpected COM/Odin leak reports.
 
 ## P3: The skull loader trusts file-derived counts and indices
 

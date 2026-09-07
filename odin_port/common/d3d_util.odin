@@ -250,14 +250,20 @@ compile_shader :: proc(filename: string, compile_args: []string) -> ^dxc.IBlob {
 		dxc.IResult_UUID,
 		ptr(&result), //            output
 	)
-	if hr >= 0 {
-		result->GetStatus(&hr)
+	// Odin: validate the method result before touching its output. The book defers
+	// this check, but a failed Compile call need not return an IResult at all.
+	hr_panic(hr, "IDxcCompiler3::Compile")
+	if result == nil {
+		report_error("IDxcCompiler3::Compile succeeded without returning a result")
+		os.exit(1)
 	}
 	defer result->Release()
+	compile_status: dxc.HRESULT
+	hr_panic(result->GetStatus(&compile_status), "IDxcResult::GetStatus")
 
 	// Get errors and output them if any.
 	error_msgs: ^dxc.IBlobUtf8
-	result->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, ptr(&error_msgs), nil)
+	hr_panic(result->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, ptr(&error_msgs), nil), "GetOutput(ERRORS)")
 	if error_msgs != nil {
 		defer error_msgs->Release()
 		if error_msgs->GetStringLength() > 0 {
@@ -273,12 +279,16 @@ compile_shader :: proc(filename: string, compile_args: []string) -> ^dxc.IBlob {
 			os.exit(1)
 		}
 	}
-	hr_panic(hr, "IDxcCompiler3::Compile")
+	hr_panic(compile_status, "Shader compilation")
 
 	// Get the DX intermediate language, which the GPU driver will translate
 	// into native GPU code.
 	dxil: ^dxc.IBlob
 	hr_panic(result->GetOutput(.OBJECT, dxc.IBlob_UUID, ptr(&dxil), nil), "GetOutput(OBJECT)")
+	if dxil == nil {
+		report_error("Shader compilation succeeded without returning DXIL")
+		os.exit(1)
+	}
 
 	when ODIN_DEBUG {
 		// Write PDB data for PIX debugging (debug args add -Zi, which produces one).
@@ -291,8 +301,12 @@ compile_shader :: proc(filename: string, compile_args: []string) -> ^dxc.IBlob {
 		pdb_path_from_compiler: ^dxc.IBlobUtf16
 		if result->GetOutput(.PDB, dxc.IBlob_UUID, ptr(&pdb_data), &pdb_path_from_compiler) >=
 		   0 {
-			defer pdb_data->Release()
-			defer pdb_path_from_compiler->Release()
+			// PDB output is optional (for example, without -Zi).
+			defer {
+				if pdb_data != nil {pdb_data->Release()}
+				if pdb_path_from_compiler != nil {pdb_path_from_compiler->Release()}
+			}
+			if pdb_data == nil || pdb_path_from_compiler == nil {return dxil}
 			pdb_name_utf16 := ([^]u16)(pdb_path_from_compiler->GetStringPointer())
 			pdb_name, _ := win.utf16_to_utf8(
 				pdb_name_utf16[:pdb_path_from_compiler->GetStringLength()],
