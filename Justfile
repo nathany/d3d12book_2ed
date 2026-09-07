@@ -50,7 +50,7 @@ test-gpu:
 
 # Build an example with AddressSanitizer into the session temp directory.
 build-asan example:
-    out_dir="${TMPDIR:-${TEMP:-/tmp}}/d3d12book_2ed"; mkdir -p "$out_dir"; odin build "odin_port/{{example}}" -debug -sanitize:address -out:"$out_dir/{{example}}-asan.exe"; printf 'Built %s\n' "$out_dir/{{example}}-asan.exe"
+    set -e; out_dir="${TMPDIR:-${TEMP:-/tmp}}/d3d12book_2ed"; mkdir -p "$out_dir"; odin build "odin_port/{{example}}" -debug -sanitize:address -out:"$out_dir/{{example}}-asan.exe"; printf 'Built %s\n' "$out_dir/{{example}}-asan.exe"
 
 # Run an example under AddressSanitizer.
 run-asan example:
