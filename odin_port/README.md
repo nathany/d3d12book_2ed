@@ -134,15 +134,8 @@ the overlays and controls again. The newer binding set has not been validated in
 `imgui.ini` (window layout state Dear ImGui writes to the working directory at runtime)
 is gitignored.
 
-## The convention decision
+## Matrix conventions
 
-This port keeps **the book's row-vector convention**, via
-`Mat4 :: #row_major matrix[4, 4]f32` in `d3d_math` — byte-identical to `XMFLOAT4X4`. As a
-result, matrix literals are typed exactly as the book prints them, concatenation reads
-left-to-right exactly as the book writes it (`S * R * T`), points transform as `v * M`, and
-the transpose-before-CB-upload line survives unchanged.
-
-The view/projection/rotation *builders* are hand-rolled in `d3d_math` from the book's printed
-forms — `core:math/linalg`'s builders are GL-flavored column-vector and must not be mixed in.
-Its convention-agnostic operations (`dot`, `cross`, `normalize`, `inverse`, `transpose`,
-element-wise math) are used freely.
+The port keeps the book's row-vector convention and row-major storage. See the
+[porting guide's matrix explanation](../Frank%20Luna%20ODIN_PORTING_GUIDE.md) before
+mixing in library matrix builders or changing upload transposes.

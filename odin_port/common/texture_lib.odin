@@ -3,7 +3,7 @@
 // loads all ~55 book textures up front; this port passes the lib explicitly and
 // DELIBERATELY loads only the textures the ported chapters need so the DDS loader only
 // has to speak the formats actually on disk — extend the table (and, if a new format
-// appears, dds_loader.odin) as chapters land.
+// appears, dds/format.odin) as chapters land.
 package common
 
 import "core:fmt"
@@ -25,7 +25,7 @@ Texture_Lib :: struct {
 }
 
 // C++: TextureLib::Init(device, uploadBatch) — name/filename table order preserved,
-// trimmed to chapters ≤ 12.
+// trimmed to chapters ≤ 14.
 texture_lib_init :: proc(lib: ^Texture_Lib, upload_batch: ^Resource_Upload_Batch) {
 	Entry :: struct {
 		name, filename: string,

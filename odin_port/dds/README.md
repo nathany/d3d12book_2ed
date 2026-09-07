@@ -78,7 +78,7 @@ plain cast, no lookup table:
 Format = dxgi.FORMAT(info.format)
 ```
 
-[`format_dxgi_test.odin`](format_dxgi_test.odin) asserts all 51 members agree with
+[`format_dxgi_test.odin`](format_dxgi_test.odin) asserts all 52 members agree with
 `vendor:directx/dxgi` value-for-value, so that cast can't drift. It is the only file here
 that imports a graphics API, and it's gated `#+build windows`.
 
@@ -138,7 +138,7 @@ Both run in `just validate` without a graphics device. The parser tests cover fo
 row/surface overflow, cube expansion, mip/array sums, final offsets, truncation and allocation
 failure. A panic allocator proves invalid/truncated files fail before allocation. The bundled
 file test verifies `data_offset + sum(subresource.size) == file size` for all 100 textures;
-`format_dxgi_test.odin` checks all 51 local enum values against the installed DXGI bindings.
+`format_dxgi_test.odin` checks all 52 local enum values against the installed DXGI bindings.
 Rendering the textured demos checks the separate upload and sampling path.
 
 An earlier one-off C++ oracle comparison against DirectXTK12 matched 101 files and 1,365

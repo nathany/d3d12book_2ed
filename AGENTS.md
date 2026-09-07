@@ -120,6 +120,14 @@ to the other, and don't edit the other port's guide unasked.
       context allocator; confirm the installed runtime before claiming the map must be made first.
     - The book also leaves the waves render item's `vertex_count` unset, and the port does not consume
       that field. Treat it as a finding only if a changed path starts relying on it.
+    - The installed `win.utf8_to_wstring` allocation overload defaults to `context.temp_allocator`;
+      inspect its current signature before reporting missing frees or adding allocator arguments.
+    - The second-edition BillboardApp uses an 11x11 jittered grid and rejects hill heights below
+      0.25, just like the port; do not substitute another edition's tree-placement assumptions.
+    - The C++ TexturedShapes mouse-up handler has the same ImGui capture guard. The Win32
+      backend runs first and releases capture on the final button-up; trace that path too.
+    - The book's DXC helper treats all nonempty diagnostics, including warnings, as fatal.
+      The port preserves this policy separately from checking method and compilation status.
     - The known D3D12 `id 1328` warning described below matches the reference behavior.
 - Keep findings concise and prioritized. Attach feedback to the shortest useful changed-line range;
   if there are no actionable findings, say so directly.

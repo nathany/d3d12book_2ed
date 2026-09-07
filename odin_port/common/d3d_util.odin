@@ -265,7 +265,9 @@ compile_shader :: proc(filename: string, compile_args: []string) -> ^dxc.IBlob {
 	compile_status: dxc.HRESULT
 	hr_panic(result->GetStatus(&compile_status), "IDxcResult::GetStatus")
 
-	// Get errors and output them if any.
+	// C++: any nonempty DXC diagnostic is fatal, including warnings from a successful
+	// compile. Preserve that teaching policy; method failures and shader status are
+	// checked separately. Accepting warnings would be a deliberate change from the book.
 	error_msgs: ^dxc.IBlobUtf8
 	hr_panic(result->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, ptr(&error_msgs), nil), "GetOutput(ERRORS)")
 	if error_msgs != nil {

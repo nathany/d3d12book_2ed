@@ -8,22 +8,24 @@
 //    type (Odin's subtype-polymorphism idiom, replacing the C++ virtual base class).
 //  - d3d_app_init / d3d_app_run / d3d_app_shutdown — Initialize(), Run(), and ~D3DApp().
 //    The C++ `GetApp()` singleton becomes a pointer in the window's GWLP_USERDATA slot
-//    (a thin pointer here — no fat-pointer indirection like the Rust port needed).
+//    (a borrowed pointer to the demo-owned application).
 //
-// COM lifetime discipline (the part Rust's smart pointers did for free) is explicit here,
+// COM lifetime discipline is explicit here,
 // exactly as the porting guide describes: every out-param interface is a reference we own
 // and Release — locals via defer, long-lived fields in d3d_app_shutdown (queue flushed
 // first, children before the device, device last).
 //
-// Deviations from the C++ (deliberate, same as the Rust port; see the guide):
-//  - ImGui init/shutdown/new-frame: not yet ported (the ch 4 part-2 step).
-//  - GraphicsMemory/ResourceUploadBatch (DirectXTK12): first used in ch 6–7; deferred.
-//  - SamplerHeap, CbvSrvUavHeap: first bound by demos with shaders; deferred.
-//  - Debug output goes to stderr — including the debug layer itself, via
-//    ID3D12InfoQueue1::RegisterMessageCallback (pre-bound in vendor:directx/d3d12; the
-//    guide's "validation to stderr" side quest costs a dozen lines here).
-//  - The Agility SDK exports are omitted: Windows 11's inbox runtime already provides
-//    SM 6.6 (verified against the C++ demos, which resolve to the system D3D12Core.dll).
+// Deliberate adaptations from the C++ (see the porting guide):
+//  - ImGui 1.92 uses descriptor allocation callbacks instead of the book's single SRV.
+//    d3d_app_init_imgui takes the demo-owned Cbv_Srv_Uav_Heap explicitly; update and
+//    shutdown retain the book's frame ordering and release ImGui before that heap.
+//  - GraphicsMemory and SamplerHeap singletons become the owned linear_allocator and
+//    sampler_heap fields. ResourceUploadBatch is reduced to synchronous end-and-wait;
+//    its upload helpers and the allocator document their lifetime contracts separately.
+//  - Debug output goes to stderr, including ID3D12InfoQueue1 messages, so a terminal
+//    exposes the diagnostics the C++ samples send to the debugger.
+//  - Agility SDK exports are omitted on the tested Windows setup, which uses the inbox
+//    runtime. Runtime, driver and GPU feature requirements still apply.
 package common
 
 import "base:runtime"

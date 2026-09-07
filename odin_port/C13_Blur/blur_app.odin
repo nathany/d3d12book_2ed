@@ -10,6 +10,7 @@
 //   odin run odin_port/C13_Blur -debug
 package c13_blur
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
@@ -51,7 +52,7 @@ Render_Item :: struct {
 	base_vertex_location:    i32,
 }
 
-Blend_Demo_App :: struct {
+Blur_App :: struct {
 	using base:                common.D3D_App,
 	cbv_srv_uav_heap:          common.Cbv_Srv_Uav_Heap,
 
@@ -113,9 +114,9 @@ Blend_Demo_App :: struct {
 main :: proc() {
 	context = common.mem_track_init() // Odin-side leak detection (debug builds); see common/mem_track.odin
 
-	app: Blend_Demo_App
+	app: Blur_App
 
-	// C++ member initializers (TexWavesApp.h).
+	// C++ member initializers (BlurApp.h).
 	app.view = d3d_math.MAT4_IDENTITY
 	app.proj = d3d_math.MAT4_IDENTITY
 	app.theta = 1.5 * math.PI
@@ -144,7 +145,7 @@ main :: proc() {
 	app.on_mouse_up = on_mouse_up
 	app.on_mouse_move = on_mouse_move
 
-	// C++: TexWavesApp::Initialize().
+	// C++: BlurApp::Initialize().
 	common.d3d_app_init(&app.base)
 
 	// We will upload on the direct queue for the book samples, but
@@ -212,9 +213,9 @@ main :: proc() {
 	os.exit(code)
 }
 
-// C++: TexWavesApp::OnResize.
+// C++: BlurApp::OnResize.
 on_resize :: proc(base: ^common.D3D_App) {
-	app := (^Blend_Demo_App)(base)
+	app := (^Blur_App)(base)
 
 	common.on_resize(base) // C++: D3DApp::OnResize();
 	blur_filter_on_resize(&app.blur_filter, u32(app.client_width), u32(app.client_height))
@@ -228,9 +229,9 @@ on_resize :: proc(base: ^common.D3D_App) {
 	)
 }
 
-// C++: TexWavesApp::Update.
+// C++: BlurApp::Update.
 update :: proc(base: ^common.D3D_App) {
-	app := (^Blend_Demo_App)(base)
+	app := (^Blur_App)(base)
 
 	on_keyboard_input(app)
 	update_camera(app)
@@ -271,14 +272,14 @@ update :: proc(base: ^common.D3D_App) {
 	update_main_pass_cb(app)
 }
 
-// C++: TexWavesApp::OnKeyboardInput — empty in this demo.
-on_keyboard_input :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::OnKeyboardInput — empty in this demo.
+on_keyboard_input :: proc(app: ^Blur_App) {
 }
 
-// C++: TexWavesApp::AnimateMaterials — scroll the water material texture coordinates.
+// C++: BlurApp::AnimateMaterials — scroll the water material texture coordinates.
 // (Row 3 of the row-major MatTransform is the translation row, [3][0]=tu, [3][1]=tv —
 // the C++'s MatTransform(3, 0)/(3, 1).)
-animate_materials :: proc(app: ^Blend_Demo_App) {
+animate_materials :: proc(app: ^Blur_App) {
 	water_mat := common.material_lib_get(&app.mat_lib, "water")
 
 	dt := common.game_timer_delta_time(&app.timer)
@@ -299,8 +300,8 @@ animate_materials :: proc(app: ^Blend_Demo_App) {
 	water_mat.num_frames_dirty = common.NUM_FRAME_RESOURCES
 }
 
-// C++: TexWavesApp::UpdateCamera.
-update_camera :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::UpdateCamera.
+update_camera :: proc(app: ^Blur_App) {
 	// Convert Spherical to Cartesian coordinates.
 	app.eye_pos.x = app.radius * math.sin(app.phi) * math.cos(app.theta)
 	app.eye_pos.z = app.radius * math.sin(app.phi) * math.sin(app.theta)
@@ -313,8 +314,8 @@ update_camera :: proc(app: ^Blend_Demo_App) {
 	app.view = d3d_math.look_at_lh(pos, target, up)
 }
 
-// C++: TexWavesApp::UpdatePerObjectCB.
-update_per_object_cb :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::UpdatePerObjectCB.
+update_per_object_cb :: proc(app: ^Blur_App) {
 	// Update per object constants once per frame so the data can be shared across
 	// different render passes.
 	for ri in app.all_ritems {
@@ -331,9 +332,9 @@ update_per_object_cb :: proc(app: ^Blend_Demo_App) {
 	}
 }
 
-// C++: TexWavesApp::UpdateMaterialBuffer — the upload now carries the texture transform
+// C++: BlurApp::UpdateMaterialBuffer — the upload now carries the texture transform
 // and the bindless texture indices alongside the shading constants.
-update_material_buffer :: proc(app: ^Blend_Demo_App) {
+update_material_buffer :: proc(app: ^Blur_App) {
 	curr_material_buffer := &app.curr_frame_resource.material_buffer
 	for _, mat in app.mat_lib.materials {
 		// Only update the buffer data if the data has changed.  If the buffer
@@ -356,8 +357,8 @@ update_material_buffer :: proc(app: ^Blend_Demo_App) {
 	}
 }
 
-// C++: TexWavesApp::UpdateMainPassCB — identical to LitShapes'.
-update_main_pass_cb :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::UpdateMainPassCB — camera, lighting, fog and wave parameters.
+update_main_pass_cb :: proc(app: ^Blur_App) {
 	app.main_pass_cb = {} // C++: ZeroMemory(&mMainPassCB, sizeof(mMainPassCB));
 
 	view := app.view
@@ -402,8 +403,8 @@ update_main_pass_cb :: proc(app: ^Blend_Demo_App) {
 	common.copy_data(&app.curr_frame_resource.pass_cb, 0, app.main_pass_cb)
 }
 
-// C++: WavesCSApp::UpdateWavesGPU.
-update_waves_gpu :: proc(app: ^Blend_Demo_App, pass_cb: ^d3d12.IResource) {
+// C++: BlurApp::UpdateWavesGPU.
+update_waves_gpu :: proc(app: ^Blur_App, pass_cb: ^d3d12.IResource) {
 	if common.game_timer_total_time(&app.timer) - app.t_base >= 0.25 {
 		app.t_base += 0.25
 		i := u32(4 + rand.int_max(int(app.waves.num_rows) - 5 - 4 + 1))
@@ -429,8 +430,8 @@ update_waves_gpu :: proc(app: ^Blend_Demo_App, pass_cb: ^d3d12.IResource) {
 	}
 }
 
-// C++: TexWavesApp::UpdateImgui — Options panel with the wave sliders.
-update_imgui :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::UpdateImgui — Options panel with wave and blur controls.
+update_imgui :: proc(app: ^Blur_App) {
 	common.d3d_app_update_imgui_base() // C++: D3DApp::UpdateImgui(gt)
 
 	//
@@ -489,9 +490,9 @@ update_imgui :: proc(app: ^Blend_Demo_App) {
 	im.Render()
 }
 
-// C++: TexWavesApp::Draw.
+// C++: BlurApp::Draw.
 draw :: proc(base: ^common.D3D_App) {
-	app := (^Blend_Demo_App)(base)
+	app := (^Blur_App)(base)
 
 	update_imgui(app)
 
@@ -635,8 +636,8 @@ draw :: proc(base: ^common.D3D_App) {
 	base.command_queue->Signal(base.fence, base.current_fence)
 }
 
-// C++: TexWavesApp::DrawRenderItems.
-draw_render_items :: proc(app: ^Blend_Demo_App, ritems: []^Render_Item) {
+// C++: BlurApp::DrawRenderItems.
+draw_render_items :: proc(app: ^Blur_App, ritems: []^Render_Item) {
 	cmd_list := app.command_list
 
 	for ri in ritems {
@@ -661,9 +662,9 @@ draw_render_items :: proc(app: ^Blend_Demo_App, ritems: []^Render_Item) {
 	}
 }
 
-// C++: TexWavesApp::OnMouseDown — ImGui gets first claim on the mouse.
+// C++: BlurApp::OnMouseDown — ImGui gets first claim on the mouse.
 on_mouse_down :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
-	app := (^Blend_Demo_App)(base)
+	app := (^Blur_App)(base)
 	io := im.GetIO()
 	if !io.WantCaptureMouse {
 		app.last_mouse_pos = {x, y}
@@ -671,7 +672,7 @@ on_mouse_down :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 	}
 }
 
-// C++: TexWavesApp::OnMouseUp.
+// C++: BlurApp::OnMouseUp.
 on_mouse_up :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 	io := im.GetIO()
 	if !io.WantCaptureMouse {
@@ -679,10 +680,10 @@ on_mouse_up :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 	}
 }
 
-// C++: TexWavesApp::OnMouseMove — note the faster zoom (0.05/px) and wider radius clamp
+// C++: BlurApp::OnMouseMove — note the faster zoom (0.05/px) and wider radius clamp
 // than the LitShapes demo.
 on_mouse_move :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
-	app := (^Blend_Demo_App)(base)
+	app := (^Blur_App)(base)
 	io := im.GetIO()
 	if !io.WantCaptureMouse {
 		if btn_state & win.MK_LBUTTON != 0 {
@@ -712,9 +713,9 @@ on_mouse_move :: proc(base: ^common.D3D_App, btn_state: win.WPARAM, x, y: i32) {
 	}
 }
 
-// C++: TexWavesApp::BuildCbvSrvUavDescriptorHeap — after ImGui claims its slot, every
+// C++: BlurApp::BuildCbvSrvUavDescriptorHeap — after ImGui claims its slot, every
 // texture gets a bindless index and an SRV at that index (see C9_Crate).
-build_cbv_srv_uav_descriptor_heap :: proc(app: ^Blend_Demo_App) {
+build_cbv_srv_uav_descriptor_heap :: proc(app: ^Blur_App) {
 	common.cbv_srv_uav_heap_init(&app.cbv_srv_uav_heap, app.device, CBV_SRV_UAV_HEAP_CAPACITY)
 	common.d3d_app_init_imgui(&app.base, &app.cbv_srv_uav_heap)
 
@@ -734,9 +735,9 @@ build_cbv_srv_uav_descriptor_heap :: proc(app: ^Blend_Demo_App) {
 	blur_filter_build_descriptors(&app.blur_filter, &app.cbv_srv_uav_heap)
 }
 
-// C++: TexWavesApp::BuildRootSignature — two root CBVs plus the material buffer as a
+// C++: BlurApp::BuildRootSignature — two root CBVs plus the material buffer as a
 // root SRV (identical to C8_LitShapes').
-build_root_signature :: proc(app: ^Blend_Demo_App) {
+build_root_signature :: proc(app: ^Blur_App) {
 	// Root parameter can be a table, root descriptor or root constants.
 	gfx_root_parameters: [Gfx_Root_Arg]d3d12.ROOT_PARAMETER
 
@@ -833,9 +834,8 @@ build_root_signature :: proc(app: ^Blend_Demo_App) {
 	)
 }
 
-// C++: BlendDemoApp::BuildShadersAndInputLayout — BasicBlend.hlsl plus the
-// ALPHA_TEST pixel-shader permutation.
-build_shaders_and_input_layout :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::BuildShadersAndInputLayout — render permutations plus wave and blur compute shaders.
+build_shaders_and_input_layout :: proc(app: ^Blur_App) {
 	// C++: COMMA_DEBUG_ARGS — DXC_ARG_DEBUG, DXC_ARG_SKIP_OPTIMIZATIONS in debug builds.
 	when ODIN_DEBUG {
 		vs_args := [?]string{"-E", "VS", "-T", "vs_6_6", dxc.ARG_DEBUG, dxc.ARG_SKIP_OPTIMIZATIONS}
@@ -877,8 +877,8 @@ build_shaders_and_input_layout :: proc(app: ^Blend_Demo_App) {
 	}
 }
 
-// C++: TexWavesApp::BuildPSOs.
-build_psos :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::BuildPSOs.
+build_psos :: proc(app: ^Blur_App) {
 	base_pso_desc := common.init_default_pso(
 		app.back_buffer_format,
 		app.depth_stencil_format,
@@ -997,14 +997,14 @@ build_psos :: proc(app: ^Blend_Demo_App) {
 			app.device->CreateComputePipelineState(
 				&desc, d3d12.IPipelineState_UUID, common.ptr(&pso),
 			),
-			"CreateComputePipelineState(waves)",
+			fmt.tprintf("CreateComputePipelineState(%s)", pso_name),
 		)
 		app.psos[pso_name] = pso
 	}
 }
 
-// C++: TexWavesApp::BuildFrameResources.
-build_frame_resources :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::BuildFrameResources.
+build_frame_resources :: proc(app: ^Blur_App) {
 	pass_count :: 1
 	for &fr in app.frame_resources {
 		frame_resource_init(
@@ -1016,14 +1016,14 @@ build_frame_resources :: proc(app: ^Blend_Demo_App) {
 	}
 }
 
-// C++: TexWavesApp::BuildMaterials — MaterialLib::GetLib().Init(...).
-build_materials :: proc(app: ^Blend_Demo_App) {
+// C++: BlurApp::BuildMaterials — MaterialLib::GetLib().Init(...).
+build_materials :: proc(app: ^Blur_App) {
 	common.material_lib_init(&app.mat_lib, &app.tex_lib)
 }
 
-// C++: TexWavesApp::AddRenderItem — gains the texTransform parameter this chapter.
+// C++: BlurApp::AddRenderItem — record world/texture transforms and the material.
 add_render_item :: proc(
-	app: ^Blend_Demo_App,
+	app: ^Blur_App,
 	layer: Render_Layer,
 	world: d3d_math.Mat4,
 	tex_transform: d3d_math.Mat4,
@@ -1045,9 +1045,9 @@ add_render_item :: proc(
 	append(&app.all_ritems, ritem)
 }
 
-// C++: BlendDemoApp::BuildRenderItems — transparent tiled water (5x5), opaque grass
+// C++: BlurApp::BuildRenderItems — transparent tiled water (5x5), opaque grass
 // (8x8), and an alpha-tested wire-fence box.
-build_render_items :: proc(app: ^Blend_Demo_App) {
+build_render_items :: proc(app: ^Blur_App) {
 	water_geo := app.geometries["waterGeo"]
 	add_render_item(
 		app,
@@ -1087,10 +1087,10 @@ build_render_items :: proc(app: ^Blend_Demo_App) {
 	)
 }
 
-// C++: TexWavesApp::BuildLandGeometry — a grid with the hills height function applied;
+// C++: BlurApp::BuildLandGeometry — a grid with the hills height function applied;
 // the grid's generated UVs come along now (the grass texture needs them).
 build_land_geometry :: proc(
-	app: ^Blend_Demo_App,
+	app: ^Blur_App,
 	upload_batch: ^common.Resource_Upload_Batch,
 ) -> ^common.Mesh_Geometry {
 	grid := common.create_grid(160.0, 160.0, 50, 50)
@@ -1164,7 +1164,7 @@ build_land_geometry :: proc(
 // C++: BlurApp::BuildWaveGeometry — a static 256x256 water grid displaced in the vertex
 // shader from the compute simulation's current height texture.
 build_wave_geometry :: proc(
-	app: ^Blend_Demo_App,
+	app: ^Blur_App,
 	upload_batch: ^common.Resource_Upload_Batch,
 ) -> ^common.Mesh_Geometry {
 	grid := common.create_grid(128.0, 128.0, app.waves.num_rows, app.waves.num_cols)
@@ -1241,9 +1241,9 @@ build_wave_geometry :: proc(
 	return geo
 }
 
-// C++: BlendDemoApp::BuildShapeGeometry — the wire-fence box.
+// C++: d3dUtil::BuildShapeGeometry — reduced to the wire-fence box used by this demo.
 build_shape_geometry :: proc(
-	app: ^Blend_Demo_App,
+	app: ^Blur_App,
 	upload_batch: ^common.Resource_Upload_Batch,
 ) -> ^common.Mesh_Geometry {
 	box := common.create_box(1.0, 1.0, 1.0, 3)
@@ -1303,12 +1303,12 @@ build_shape_geometry :: proc(
 	return geo
 }
 
-// C++: TexWavesApp::GetHillsHeight.
+// C++: BlurApp::GetHillsHeight.
 get_hills_height :: proc(x, z: f32) -> f32 {
 	return 0.3 * (z * math.sin(0.1 * x) + x * math.cos(0.1 * z))
 }
 
-// C++: TexWavesApp::GetHillsNormal.
+// C++: BlurApp::GetHillsNormal.
 get_hills_normal :: proc(x, z: f32) -> [3]f32 {
 	// n = (-df/dx, 1, -df/dz)
 	n := [3]f32 {
