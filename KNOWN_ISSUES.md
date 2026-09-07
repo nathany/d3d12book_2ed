@@ -273,14 +273,81 @@ WinGet PATH entry in Git Bash, and `just validate` itself passed**:
 - DDS integration coverage: 100 book textures, 1,359 subresources, 439.4 MiB
 - Portable Linux AMD64 object build of `odin_port/dds`
 
+The suite was rerun successfully after the compiler update to
+**`dev-2026-09-nightly:a2fb372`** (2026-09-06 local date / 2026-09-07 UTC). A temporary
+compile probe also confirmed the guide's `Material_Data.mat_transform` offset of 48 bytes
+and `Per_Pass_CB` size of 1,552 bytes on that compiler.
+
 The initial agent sandbox could not execute the installed WinGet tool. Running the same
 Git Bash command with approved access resolved it; this was not a missing installation or
 PATH entry. Discovery guidance belongs in `AGENTS.md`.
 
-No implementation fixes or permanent tests were added by this documentation update. Interactive
-window rendering, GPU-backlog behavior, resize storms, Escape handling, debug-layer output,
-and COM/Odin leak checks were not rerun. Source confirmation and parser probes do not replace
-those acceptance checks when the code is eventually changed.
+### September compiler runtime baseline
+
+All **19 apps built with `-debug`**, launched from the repository root, survived six window
+resizes, and exited **0 via Escape**. Each run has initial/later and post-resize captures.
+The underlying source baseline is commit `eb50a0b`; subsequent edits in this pass are
+documentation only. Tested hardware: **AMD Radeon RX 9070 XT**, driver **32.0.31041.1004**,
+Windows x64 at 150% display scaling. The pinned DXC runtime was `dxcompiler.dll` 1.6.2112.16
+with `dxil.dll` 101.6.2112.13. This is a baseline for this configuration, not a cross-driver
+or release-runtime certification.
+
+| Demo | Observed scene/output | Expected id 1328 messages |
+| --- | --- | ---: |
+| `APPENDIX_A` | White Win32 window; uses KEYDOWN for Escape | 0 |
+| `C4_Init_Direct3D` | LightSteelBlue clear and Options overlay | 0 |
+| `C6_Box` | Interpolated vertex colors on the box | 2 |
+| `C6_BoxGrid` | Multiple colored boxes | 2 |
+| `C7_Shapes` | Box, cylinders and spheres in wireframe | 2 |
+| `C7_Waves` | Height-colored terrain and moving wireframe water | 3 |
+| `C8_LitShapes` | Lit skull, colonnade and floor | 4 |
+| `C8_LitWaves` | Shaded green hills and blue water; later/orbited captures show ripples | 3 |
+| `C9_Crate` | Wood texture and Direct3D lettering | 2 |
+| `C9_TexturedShapes` | Brick columns, tiled floor, stone spheres and skull | 4 |
+| `C9_TexWaves` | Grass and animated textured water | 5 |
+| `C10_BlendDemo` | Fog, alpha-tested fence and blended water | 5 |
+| `C11_Stenciling` | Skull, ice-mirror reflection and projected floor shadow | 4 |
+| `C12_BillboardsGS` | Tree sprites over the fogged landscape; known depth-write issue remains | 7 |
+| `C13_Blur` | Blurred scene with readable UI | 6 |
+| `C13_VecAddCS` | Crate scene; all 32 tuples match `(0, 2*i, i, i, -i)` | 5 |
+| `C13_WavesCS` | GPU-displaced textured water; known parameter difference remains | 6 |
+| `C14_BasicTessellation` | White wireframe tessellated surface | 2 |
+| `C14_BezierPatch` | White wireframe Bezier surface; known initial camera difference remains | 2 |
+
+Stock demo stderr contained **no unexpected messages**, `[odin-leak]` entries or DXGI
+live-object reports. The D3D12 debug callback, COM report and Odin tracker were positively
+checked in an **isolated temporary copy**: an application message reached stderr, an
+intentionally leaked fence appeared in both D3D12 and DXGI reports, and a 123-byte Odin
+allocation was reported with its source location. These deliberate probe diagnostics are
+excluded from the stock-demo results. Appendix A has no D3D12 or tracking-allocator setup.
+GPU-based validation remained off; no new missing-barrier probe or GPU-backlog test ran.
+
+Representative input checks confirmed orbit-camera changes, the Box wireframe checkbox,
+and the Bezier Tess Factor slider. Static and later frames were inspected for geometry,
+texturing, lighting, animation, reflection and tessellation. Some initial captures were
+invalidated by another foreground window and discarded; valid runs checked the target
+window identity. Existing `imgui.ini` and `results.txt` state was restored after testing.
+
+**Limits:** this pass inspected Odin renders against the matching source and expected chapter
+behavior; it did not produce synchronized new C++/Odin image pairs or exercise every control
+and camera angle. The billboard, WavesCS and Chapter 14 differences above remain pending.
+An ordinary successful render does not close the allocator fence-ordering issue. The
+per-issue acceptance checks still apply when implementing fixes.
+
+### ImGui restore verification
+
+A clean temporary checkout of Capati/odin-imgui at
+`6987747b1c78f984ac529e2d0cc1f59fd60c50ac` successfully generated and built the **1.92.8-docking**
+native library with Win32/DX12. Its automatic pattern patch changed two Win32 declarations;
+the previous manual C2159 workaround was unnecessary. The existing vendored `imgui.odin`
+matches the local older checkout at `a29e17ad139d7bacb5a7c5507ed2ea3334a4ffbe` by SHA-256.
+Temporary demo copies using the rebuilt library rendered, resized and exited normally,
+including a clean BezierPatch run. See `odin_port/README.md` for the tested restore commands.
+
+The current upstream default is 1.92.9b-docking. Its newer bindings were **not** substituted
+or validated here; restoring the current library and upgrading the binding set are separate
+operations. No implementation, vendored binding, installed project library or permanent
+test was changed in this documentation pass.
 
 The existing `git diff --check main...HEAD` warnings concern mixed space/tab indentation in six
 signature lines of `odin_port/libs/imgui/backends/dx12/imgui_impl_dx12.odin` (38-44).

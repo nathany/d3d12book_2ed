@@ -616,7 +616,7 @@ Smaller notes: land geometry is a MeshGen grid plus the hills height function an
 height-banded vertex colors; water indices use **R32_UINT** to match C++. The 128×128 grid has
 16,384 vertices, so its indices could fit in 16 bits: index count is not index-element width.
 The existing code comments claiming otherwise are pending cleanup. Finally,
-and `MathHelper::Rand`/`RandF` map to `core:math/rand`'s `int_max` (mind the `+1` — the book's
+`MathHelper::Rand`/`RandF` map to `core:math/rand`'s `int_max` (mind the `+1` — the book's
 range is inclusive) and `float32_range`.
 
 Correct looks like: ripples that actually animate and interfere, hills banded sand through
@@ -731,6 +731,11 @@ a concession to D3D but the file format's own vocabulary, since a DX10 header st
 `DXGI_FORMAT` integer. Then `dxgi.FORMAT(f)` is a cast rather than a table, and the parser
 stays something you could lift into another project unchanged.
 
+The current parser handles the bundled assets, but still has known malformed-input
+arithmetic gaps. See [the issue ledger](KNOWN_ISSUES.md) before reusing it with external
+files. Keeping parsing separate makes those boundary checks possible without changing
+the chapter's texture-binding lesson.
+
 **Then the bindless plumbing**, which is the chapter's actual lesson:
 
 - Every texture gets a **bindless index** from the CbvSrvUav heap's free-list and an SRV at
@@ -837,13 +842,45 @@ clipped cleanly, including in the normal (non-wireframe) PSO.
 - `VecAddCS`: readback heap + `Map` after fence (the book's one GPU→CPU copy).
 - `Blur`: UAV/SRV descriptor ping-pong; `WavesCS`: ch 7 waves on GPU.
 
-**Watch out:** UAV barriers between dependent dispatches — the debug layer won't always catch a
-missing one; AMD shows you artifacts instead. (You enabled DRED in ch 4, right?)
+**Reference ports:** `odin_port/C13_VecAddCS`, `odin_port/C13_Blur`, and
+`odin_port/C13_WavesCS`.
+
+VecAddCS submits its compute work once, copies into a readback buffer, waits for completion,
+and checks each result before writing the book's `results.txt`. The window still displays
+a crate scene; the computed vector output is the chapter's
+new result, not a new rendered object.
+
+`Blur_Filter` mirrors the book's separable Gaussian filter: horizontal and vertical passes
+alternate between two textures. Resize rebuilds those textures to match the back buffer.
+The scene blurs while the Options overlay remains readable; increasing sigma or the number
+of passes should spread the blur farther.
+
+`Gpu_Waves` replaces the CPU vertex stream with three `R32_FLOAT` solution textures. Compute
+updates and rotates previous/current/next roles; the vertex shader samples the current
+solution to displace the water grid. Descriptor indices must follow those roles too.
+The current port's speed/damping defaults differ from C++; that pending correction is in
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+
+**Watch out:** preserve the book's transitions and UAV ordering between dependent dispatches.
+A readable frame does not establish that the GPU saw every write before its consumer.
+Likewise, mapping a readback buffer gives a CPU pointer; the fence establishes when its
+contents are ready to read.
 
 ### Ch 14 — The Tessellation Stages  *(BasicTessellation, BezierPatch)*
 
-**New this chapter:** HS/DS stages, control-point patch topology, `hs_6_6`/`ds_6_6` entries in
-your shader table. Nothing else new.
+**New this chapter:** HS/DS stages, control-point patch topology, and `hs_6_6`/`ds_6_6`
+shader entries. Keep the matching HLSL and the book's patch data visible side by side.
+
+**Reference ports:** `odin_port/C14_BasicTessellation` and `odin_port/C14_BezierPatch`.
+BasicTessellation sends a four-control-point patch and derives tessellation density from
+camera distance. BezierPatch sends sixteen control points and exposes a **Tess Factor**
+slider. These are patch lists, not ordinary triangle lists; the hull and domain stages
+produce the surface triangles.
+
+Both examples use wireframe rasterization and pixel shaders returning constant white,
+making the generated triangles easy to see. Light-strength edits therefore have no effect
+on these shaders. The current Chapter 14 camera/zoom differences are pending parity fixes
+in [the issue ledger](KNOWN_ISSUES.md); do not copy those constants as deliberate adaptations.
 
 ---
 
@@ -851,8 +888,9 @@ your shader table. Nothing else new.
 
 ### Ch 15 — First Person Camera
 
-No demo — finish the `Camera` you stubbed at ch 6 (strafe/walk/pitch/rotate-Y, view rebuild).
-Pure `d3d_math` + linalg. Portable-laptop chapter.
+Introduce the book's reusable `Camera` (strafe/walk/pitch/rotate-Y and view rebuild).
+The existing demos use per-demo orbit-camera procedures; this is the point to replace that
+control model with first-person movement using `d3d_math` and linalg.
 
 ### Ch 16 — Instancing and Frustum Culling
 
@@ -864,7 +902,9 @@ Pure `d3d_math` + linalg. Portable-laptop chapter.
   matrix, box-vs-frustum test. Book explains the plane math; `DirectXCollision.h` is the
   reference if stuck.
 
-**New this chapter:** structured-buffer instance data (SRV — no 256-byte/packing rules).
+**New this chapter:** structured-buffer instance data via an SRV. The 256-byte constant-buffer
+placement rule does not apply, but the element stride, field offsets and shader declaration
+must still agree.
 
 **Watch out:** frustum is extracted in view space, transformed to local space with
 `inverse(world * view)` — wrong space = flickering culling. Also mind conventions: your
@@ -943,7 +983,7 @@ unrelated to quaternions.)
 **New this chapter:**
 
 - `.m3d` parser + `SkinnedData`: the format is plain text with labeled sections —
-  `core:strings` + `strconv`; a pleasant evening.
+  `core:strings` + `strconv`, with explicit validation of counts and references.
 - Skinned vertex adds `bone_weights: [3]f32` + `bone_indices: [4]u8` (4th weight =
   `1 - sum`; input layout slot is `R8G8B8A8_UINT`).
 - Bone palette CB + the `SKINNED` shader define.
@@ -1013,7 +1053,7 @@ there's no `CD3DX12_PIPELINE_STATE_STREAM` equivalent — build the stream struc
 | Linear upload arena + `Frame_Resource` ring | ch 7 | medium | DirectXTK12 `GraphicsMemory` + book's Common |
 | `mem_track.odin` (Tracking_Allocator wiring) | ch 7 | tiny | CRT debug-heap leak check |
 | `geometry_builders.odin` (`ModelVertex`, `Material`, shape + skull builders) | ch 8 | small | `d3dUtil::BuildShapeGeometry`/`BuildSkullGeometry` |
-| `dds` package (pure parser + tests; grow formats per chapter) | ch 9 | medium (~400 lines) | DirectXTK12 `DDSTextureLoader` "Load" half + `LoaderHelpers` — Odin's biggest gap |
+| `dds` package (pure parser + tests; grow formats per chapter) | ch 9 | medium | DirectXTK12 `DDSTextureLoader` "Load" half + `LoaderHelpers` |
 | `common/texture_upload.odin` (footprint upload) | ch 9 | small | DirectXTK12 `DDSTextureLoader` "Create" half + texture path of `ResourceUploadBatch` |
 | `texture_lib.odin`/`material_lib.odin` + `Sampler_Heap` (grow per chapter) | ch 9 | small | book's `TextureLib`/`MaterialLib`/`SamplerHeap` singletons |
 | Texture upload extensions (arrays → from-memory) | ch 12, 18, 21, 25 | small each | DirectXTK12 `ResourceUploadBatch` |
@@ -1040,14 +1080,14 @@ Best of all, the load/store split disappears: `XMFLOAT3` versus `XMVECTOR`, and 
 and computes. With `Mat4 :: #row_major matrix[4,4]f32` the matrix side is byte-identical to
 `XMFLOAT4X4`, so even the transpose-on-upload line survives verbatim.
 
-**What you build yourself.** A **DDS loader** is the one genuinely missing piece — nothing in
-`core:` or `vendor:` reads DDS, so budget an evening of format parsing before ch 9 (less than
-it sounds: the ch 9 guide explains why, and the reference port's is ~330 lines, upload
-included). And the **D3D-convention matrix builders**, because `core:math/linalg`'s are
-GL-flavored column-vector: view, projection, and rotation come from your own `d3d_math.odin`,
+**What you build yourself.** A **DDS loader** fills a gap in `core:` and `vendor:`. Start with
+the formats needed by chapter 9, separate parsing from uploading, and validate malformed
+headers as well as the book's assets. You also need **D3D-convention matrix builders**,
+because `core:math/linalg`'s are GL-flavored column-vector: view, projection, and rotation
+come from your own `d3d_math.odin`,
 typed from the forms Luna prints, with linalg demoted to vectors, quaternions, and
-convention-agnostic operations. Neither gap is hidden or hard, and the inventory table above
-lists everything else.
+convention-agnostic operations. The inventory above shows how these helpers grow as the
+book introduces new requirements.
 
 ## Things to learn next
 
@@ -1055,7 +1095,9 @@ The book ends where a working renderer begins. What follows is weighted toward t
 gaps — headline features advertise themselves, and you'll meet them in a blog post eventually.
 The danger is finishing all 27 chapters without ever learning that a cleaner way exists.
 
-A ✅ means `vendor:directx/d3d12` already binds it. None of this needs new bindings.
+A ✅ marks an entry available in the compiler's D3D12 bindings when this guide was reviewed.
+Bindings, runtime support and device support are separate questions. These are optional
+topics for after the book; keep their API and feature checks beside any future implementation.
 
 ### You could finish the book and never know these exist
 
@@ -1108,8 +1150,8 @@ descriptor indexing, which the 2nd edition's bindless design makes genuinely rea
   colors — and the thing to keep at 32-bit is positions, depth, and long accumulations.
   ✅ `OPTIONS4.Native16BitShaderOpsSupported`
 - **[Variable rate shading](https://microsoft.github.io/DirectX-Specs/d3d/VariableRateShading.html)** —
-  shade coarser than per-pixel. Largely mutually exclusive with upscalers, which need the clean
-  per-pixel history that VRS blocks destroy. ✅ `RSSetShadingRate`
+  shade coarser than per-pixel. Measure the quality/performance tradeoff with your actual
+  content and reconstruction pipeline. ✅ `RSSetShadingRate`
 - **[Sampler feedback](https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html)** —
   the GPU records which mips/tiles it actually sampled, so you stream in exactly those instead
   of guessing. Pays off only when your textures don't all fit in VRAM — and even then, Sawicki's
@@ -1117,12 +1159,12 @@ descriptor indexing, which the 2nd edition's bindless design makes genuinely rea
   in a shader matches your own streaming granularity exactly and doesn't narrow your minimum spec.
   Worth understanding as a technique; optional as a DX12 feature. ✅ `SAMPLER_FEEDBACK`
 - **[GPU upload heaps](https://microsoft.github.io/DirectX-Specs/d3d/D3D12GPUUploadHeaps.html)
-  and [DirectStorage](https://github.com/microsoft/DirectStorage)** — two answers to "get bytes
-  to the GPU efficiently." Upload heaps let the CPU write straight into VRAM but need ReBAR
-  *and* Windows 11 *and* the user not having disabled ReBAR; DirectStorage does bulk NVMe→GPU
-  with GPU-side decompression. Prefer DirectStorage over hand-rolling upload heaps.
-  ✅ `HEAP_TYPE.GPU_UPLOAD` · ❌ DirectStorage ships as its own SDK and has no Odin bindings —
-  that's a set of bindings to write, not a blocker.
+  and [DirectStorage](https://github.com/microsoft/DirectStorage)** — different parts of the
+  data path. GPU upload heaps can put CPU-written data in GPU-local memory; query
+  `OPTIONS16.GPUUploadHeapSupported` before using them. DirectStorage addresses asset I/O
+  and can use GPU decompression. It does not replace the transient CPU-written constants
+  taught in chapter 7. ✅ `HEAP_TYPE.GPU_UPLOAD`; DirectStorage is a separate SDK and requires
+  separate bindings/integration.
 - **[Work graphs](https://microsoft.github.io/DirectX-Specs/d3d/WorkGraphs.html)** — GPU-driven
   work generation. Hardware support is still thin, and Odin binds only the `WORK_GRAPHS_TIER`
   feature query, not the dispatch API — you'd be writing bindings first. ⚠️
@@ -1139,9 +1181,8 @@ descriptor indexing, which the 2nd edition's bindless design makes genuinely rea
   not the partial or generic program subobjects, and `SetProgram` lives on
   `IGraphicsCommandList10` where Odin stops at 7 — bindings to write first.
 
-GPU debugging is also improving quickly — `.dxdmp` crash dumps readable in PIX, a scriptable
-PIX API, an HLSL `DebugBreak()`, PIX markers propagating into drivers. All preview or announced
-rather than shipped, so treat it as a reason for optimism, not a plan.
+For evolving GPU debugging tools, check the current PIX and DirectX release notes when you
+need them. Keep preview requirements separate from the book's working setup.
 
 ### Where to look things up
 

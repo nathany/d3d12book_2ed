@@ -171,7 +171,8 @@ allowed; preserve the package's lack of a graphics device, platform API and fata
 
 **Known-benign stderr:** one `id 1328` warning per `create_static_buffer` call
 (`CreateCommittedResource: Ignoring InitialState D3D12_RESOURCE_STATE_COPY_DEST`) — 2–5 per
-run depending on the demo's static-buffer count (ch 6–9 range). DDS texture uploads add none
+run in chapters 6–9, up to seven in the tested later demos. The baseline counts are in
+`KNOWN_ISSUES.md`. DDS texture uploads add none
 (textures really are created in COPY_DEST). DirectXTK12 does the same thing and the C++ demos
 emit them too, invisibly — ours are only visible because InfoQueue1 pipes to stderr. Don't
 "fix" them.
@@ -187,8 +188,9 @@ unregistered detector is a validation gap, not a clean result.
 The verification notes below came from PowerShell plus P/Invoke;
 keep new repeatable commands in the root Justfile and prefer Git Bash-compatible helpers.
 
-- **Escape arrives on `WM_KEYUP`** (0x0101), not `WM_KEYDOWN` — that's where the book's
-  `MsgProc` handles `VK_ESCAPE`. A posted KEYDOWN is silently ignored and the demo never exits.
+- **Chapter 4+ Escape arrives on `WM_KEYUP`** (0x0101), not `WM_KEYDOWN` — that's where
+  the book's `MsgProc` handles `VK_ESCAPE`. **Appendix A uses `WM_KEYDOWN`** (0x0100).
+  Choose the event from the actual window procedure; the wrong event is silently ignored.
 - **`odin run` spawns the demo as a child process**, so `$p.MainWindowHandle` on the odin
   process is 0. Find the window by process name (the exe is named after the package directory).
 - **Make the probe thread per-monitor DPI aware** (`SetThreadDpiAwarenessContext(-4)`). At 150%
@@ -199,6 +201,10 @@ keep new repeatable commands in the root Justfile and prefer Git Bash-compatible
   user's position), because the win32 backend re-reads `GetCursorPos` every focused frame and
   overwrites posted mouse positions. Call `SetForegroundWindow` first, or the click lands in
   whatever window has focus.
+- Verify the target HWND/process at the click location before sending input. Foreground requests
+  can fail; another visible window invalidates a screen capture and can receive the click.
+  Keep GUI runs sequential and restore `imgui.ini` and `results.txt` after probes. Compare
+  scene regions, excluding FPS text, overlays, borders and the cursor, when checking animation.
 - **`CW_USEDEFAULT` cascades window positions** per boot session, so never hardcode the origin:
   read `GetWindowRect`, then map `physical = origin + 1.5 × window-relative-virtual` at 150%.
 - **PowerShell 5.1 needs `$null = $p.Handle`** cached before the process exits, or `$p.ExitCode`
@@ -235,9 +241,10 @@ keep new repeatable commands in the root Justfile and prefer Git Bash-compatible
   prove that fence ordering is correct.
 - If Agility exports are added, verify them with `dumpbin /exports` and verify the loaded
   runtime location. The current port omits those exports based on its tested Windows setup.
-- ImGui dependency regeneration has a recorded premake line-number patch problem; see
-  `odin_port/README.md` for the build workaround. Keep dependency-build details there, not in
-  the chapter guide.
+- For ImGui dependency regeneration, see `odin_port/README.md` for the verified restore
+  using upstream's corrected pattern patch for the former premake line-number problem.
+  Its build defaults now target a newer binding set, so use the documented version overrides
+  when restoring the existing library. Keep dependency-build details there, not in the guide.
 
 ## Repo conventions
 
@@ -255,7 +262,7 @@ keep new repeatable commands in the root Justfile and prefer Git Bash-compatible
 
 ## Odin toolchain notes
 
-- Last verified compiler (2026-09-06): **dev-2026-08-nightly:902106f**. Run `odin version`
+- Last verified compiler (2026-09-06, local date): **dev-2026-09-nightly:a2fb372**. Run `odin version`
   for the current session; Odin releases monthly, so stdlib details drift. Check the matching
   installed library source and establish the revision of any separate source checkout used.
 - A full Odin source checkout lives at `C:\Users\nathany\src\github.com\odin-lang\Odin` —

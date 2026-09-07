@@ -15,6 +15,11 @@ against DirectXTK12), `test_util`, and the vendored `libs/imgui`.
 
 ## Running
 
+Verified on 2026-09-06 with **Odin `dev-2026-09-nightly:a2fb372`** and **just 1.58.0**
+on Windows x64. Check `odin version` and `just --version` when changing toolchains.
+The current runtime baseline and its remaining parity differences are recorded in
+[`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md#validation-evidence-and-remaining-checks).
+
 Use the repository's root Justfile from Git Bash so windowed demos find their shaders and runtime
 DLLs without additional path handling:
 
@@ -56,36 +61,70 @@ write shader PDBs to `HLSL PDB/` (gitignored via `*.pdb`) for PIX.
 ## ImGui (vendored in `libs/imgui`)
 
 The overlay UI (ch 4 on) uses [Capati/odin-imgui](https://github.com/Capati/odin-imgui)
-(Dear ImGui 1.92.8-docking) with the **win32 + dx12** backends — the same pair the book's
-C++ uses. The bindings are vendored here as plain copies for now (we may revisit
-submodules later); the static library is **gitignored** (large binary), so after a fresh
-clone it must be rebuilt and copied in:
+with **Dear ImGui 1.92.8-docking** and the **win32 + dx12** backends. The Odin bindings
+are already tracked; only `imgui_windows_x64.lib` is gitignored and needs restoring.
+Keep the bindings and native library on matching versions: replacing one independently
+can change the C ABI even when Odin still compiles.
 
-1. **Prerequisites:** Git, Python 3.3+ (used by dear_bindings), premake5
-   (<https://premake.github.io> — put the exe on PATH or note where it lives), and the
-   VS 2022 Build Tools (MSVC + Windows SDK).
-2. Clone `Capati/odin-imgui` somewhere *outside* this repo.
-3. In that checkout, generate and build (backends are baked into the lib at this step —
-   `win32,dx12`, nothing else):
+### Restore the library for the current bindings
 
+Prerequisites: Git, Python available as **`python3`** with `venv` and `pip`,
+[Premake 5](https://premake.github.io), and Visual Studio 2022 or its Build Tools with
+MSVC and a Windows SDK. The clean restore below was tested with Python **3.14.6**,
+Premake **5.0.0-beta8**, and MSBuild **17.14.51**. These are tested versions, not claimed
+minimum requirements. Make `premake5` and `msbuild` available in your build shell;
+an absolute path to either executable works too.
+
+1. From this repository in Git Bash, save its path, then clone into a **new directory
+   outside the repository**. Replace the example destination with your preferred location:
+
+   ```bash
+   repo_root="$(git rev-parse --show-toplevel)"
+   git clone https://github.com/Capati/odin-imgui.git ../odin-imgui-restore
+   cd ../odin-imgui-restore
+   git checkout 6987747b1c78f984ac529e2d0cc1f59fd60c50ac
    ```
-   premake5 --backends=win32,dx12 vs2022
-   msbuild build\make\windows\ImGui.vcxproj -p:Configuration=Release -p:Platform=x64
+
+2. Use that revision's corrected build script, explicitly requesting the versions matching
+   **this project's existing bindings**:
+
+   ```bash
+   python3 --version
+   premake5 --backends=win32,dx12 --imgui-version=v1.92.8-docking --dear-bindings-version=DearBindings_v0.21_ImGui_v1.92.8-docking vs2022
+   msbuild build/make/windows/ImGui.vcxproj -p:Configuration=Release -p:Platform=x64
    ```
 
-   This produces `imgui_windows_x64.lib` in the checkout root.
+   This produces `imgui_windows_x64.lib` in the checkout root. Use a fresh dependency
+   directory: Premake skips already-cloned dependencies, so changing version arguments
+   does **not** switch an existing `build/deps` checkout to those versions.
 
-   *Known issue (2026-07):* with Dear ImGui 1.92.8, the premake script's win32-backend
-   patch targets stale hardcoded line numbers (705–706; the declarations moved to
-   729–730), causing `error C2159` in `imgui_impl_win32.cpp`. Our checkout's
-   `premake5.lua` was fixed to patch by pattern instead — worth PRing upstream.
+3. Restore **only the library**, retaining the tracked Odin bindings and backend layout:
 
-4. Copy into `odin_port/libs/imgui`, **preserving the layout** (the backend packages
-   import the root package by relative path, and the `.lib` is foreign-imported from the
-   package root): `imgui.odin`, `impl_enabled.odin` (verify win32/dx12 are `true` in it),
-   `LICENSE`, `imgui_windows_x64.lib`, `backends/win32/`, `backends/dx12/`.
-5. Convert the generated `impl_enabled.odin` to **LF** — premake writes CRLF and this
-   repo intentionally uses LF line endings.
+   ```bash
+   cp imgui_windows_x64.lib "$repo_root/odin_port/libs/imgui/"
+   cd "$repo_root"
+   just run C4_Init_Direct3D
+   ```
+
+   Confirm that the Options panel renders and responds, resizing works, and Escape exits.
+   The existing `impl_enabled.odin` enables only Win32 and DX12; both are compiled into
+   the library by the command above.
+
+### What changed upstream
+
+As checked on 2026-09-06, the pinned
+[upstream build script](https://github.com/Capati/odin-imgui/blob/6987747b1c78f984ac529e2d0cc1f59fd60c50ac/premake5.lua)
+patches Win32 declarations by pattern. It patched two declarations and built successfully
+in a clean restore, eliminating the old manual line-number workaround for MSVC C2159.
+The build emitted a `/MD` to `/MT` override warning; a temporary-directory build also
+emitted MSB8029. Neither prevented the build or the runtime smoke tests.
+
+That checkout defaults to **1.92.9b-docking**, and its latest generator change corrects
+some `char` mappings to `u8`. The restore above deliberately overrides the native-library
+versions. **Do not copy its newer `imgui.odin` or backends into this project as part of a
+restore.** A bindings upgrade remains separate work: update bindings, backend declarations,
+enabled flags and library together, preserve the license/layout and LF endings, then verify
+the overlays and controls again. The newer binding set has not been validated in this port.
 
 `imgui.ini` (window layout state Dear ImGui writes to the working directory at runtime)
 is gitignored.
